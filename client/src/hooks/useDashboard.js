@@ -4,14 +4,21 @@ import { getDashboard } from "../services/dashboardService";
 export const useDashboard = () => {
   const [dashboard, setDashboard] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const fetchDashboard = async () => {
     try {
+      setError("");
       const data = await getDashboard();
       setDashboard(data);
-      setLoading(false);
     } catch (error) {
-      console.error(error);
+      setError(
+        error.response?.data?.error ||
+          error.response?.data?.message ||
+          "Unable to load dashboard data.",
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -26,6 +33,7 @@ export const useDashboard = () => {
   return {
     dashboard,
     loading,
+    error,
     refreshDashboard: fetchDashboard,
   };
 };

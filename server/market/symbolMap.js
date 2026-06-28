@@ -2,22 +2,27 @@ const symbolMap = {
   XAUUSD: {
     providerSymbol: "XAU/USD",
     type: "commodity",
+    priceRange: { min: 1000, max: 6000 },
   },
   BTCUSD: {
     providerSymbol: "BTC/USD",
     type: "crypto",
+    priceRange: { min: 10000, max: 250000 },
   },
   USDJPY: {
     providerSymbol: "USD/JPY",
     type: "forex",
+    priceRange: { min: 50, max: 300 },
   },
   US500: {
     providerSymbol: "SPY",
     type: "etf_proxy",
+    priceRange: { min: 100, max: 1000 },
   },
   US100: {
     providerSymbol: "QQQ",
     type: "etf_proxy",
+    priceRange: { min: 100, max: 1000 },
   },
 };
 

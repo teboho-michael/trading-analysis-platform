@@ -4,14 +4,12 @@ import ChartToolbar from "./ChartToolbar";
 import { collectMarketData } from "../../services/marketService";
 
 export default function TradingChartPanel({
-  dashboard,
   candles,
   candlesLoading,
   candlesError,
   selectedAsset,
   selectedTimeframe,
   selectedAssetData,
-  onAssetChange,
   onTimeframeChange,
   onDataCollected,
 }) {
@@ -51,18 +49,16 @@ export default function TradingChartPanel({
   };
 
   return (
-    <div className="chart-section">
+    <section className="chart-section panel-shell">
       <div className="chart-header">
-        <h2>
-          {selectedAsset} {selectedTimeframe} Chart
-        </h2>
+        <div>
+          <span className="eyebrow">Price chart</span>
+          <h2>{selectedAsset}</h2>
+        </div>
 
         <div className="toolbar">
           <ChartToolbar
-            dashboard={dashboard}
-            selectedAsset={selectedAsset}
             selectedTimeframe={selectedTimeframe}
-            onAssetChange={onAssetChange}
             onTimeframeChange={onTimeframeChange}
           />
 
@@ -73,14 +69,15 @@ export default function TradingChartPanel({
       </div>
 
       <div className="chart-context" aria-live="polite">
-        <span>
-          Latest price: <strong>{latestPrice ?? "—"}</strong>
+        <span className="latest-quote">
+          <small>Latest close</small>
+          <strong>{latestPrice ?? "—"}</strong>
         </span>
         <span>
-          Active zone: <strong>{activeZone?.zone_type || "None"}</strong>
+          Zone <strong>{activeZone?.zone_type || "None"}</strong>
         </span>
         <span>
-          Signal: <strong>{selectedAssetData?.latestSignal?.signal_type || "None"}</strong>
+          Signal <strong>{selectedAssetData?.latestSignal?.signal_type || selectedAssetData?.signal || "None"}</strong>
         </span>
       </div>
 
@@ -111,6 +108,6 @@ export default function TradingChartPanel({
           No candles found for {selectedAsset} {selectedTimeframe}.
         </div>
       )}
-    </div>
+    </section>
   );
 }

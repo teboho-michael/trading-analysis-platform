@@ -1,5 +1,11 @@
 const pool = require("../db/connection");
 const { getMarketDataProvider } = require("./providers/providerFactory");
+const {
+  validateCandle,
+  validateProviderCandles,
+} = require("./candleValidator");
+
+const VALID_TIMEFRAMES = new Set(["H1", "H4", "D1"]);
 
 const getAssetBySymbol = async (symbol) => {
   const result = await pool.query(
@@ -14,8 +20,23 @@ const getAssetBySymbol = async (symbol) => {
   return result.rows[0];
 };
 
-const saveCandle = async (assetId, timeframe, candle) => {
-  const saved = await pool.query(
+const getAssetById = async (assetId) => {
+  const result = await pool.query(
+    "SELECT * FROM assets WHERE id = $1",
+    [assetId],
+  );
+
+  return result.rows[0];
+};
+
+const validateTimeframe = (timeframe) => {
+  if (!VALID_TIMEFRAMES.has(timeframe)) {
+    throw new Error(`DATA_VALIDATION_ERROR: Unsupported timeframe ${timeframe}`);
+  }
+};
+
+const insertCandle = async (db, assetId, timeframe, candle) => {
+  const saved = await db.query(
     `
         INSERT INTO candles
         (
@@ -53,7 +74,29 @@ const saveCandle = async (assetId, timeframe, candle) => {
   return saved.rows[0];
 };
 
+const saveCandle = async (assetId, timeframe, candle, expectedSymbol) => {
+  validateTimeframe(timeframe);
+
+  const asset = await getAssetById(assetId);
+
+  if (!asset) {
+    throw new Error(`DATA_VALIDATION_ERROR: Asset not found for id ${assetId}`);
+  }
+
+  if (!expectedSymbol || asset.symbol !== expectedSymbol) {
+    throw new Error(
+      `DATA_VALIDATION_ERROR: Asset id ${assetId} belongs to ${asset.symbol}, not ${expectedSymbol || "an unspecified symbol"}`,
+    );
+  }
+
+  const validatedCandle = validateCandle(asset.symbol, candle);
+
+  return insertCandle(pool, asset.id, timeframe, validatedCandle);
+};
+
 const collectCandlesForAsset = async (symbol, timeframe) => {
+  validateTimeframe(timeframe);
+
   const asset = await getAssetBySymbol(symbol);
 
   if (!asset) {
@@ -63,12 +106,30 @@ const collectCandlesForAsset = async (symbol, timeframe) => {
   const provider = getMarketDataProvider();
 
   const candles = await provider.getCandles(symbol, timeframe);
+  const validatedCandles = validateProviderCandles(symbol, candles);
 
   const savedCandles = [];
+  const client = await pool.connect();
 
-  for (const candle of candles) {
-    const savedCandle = await saveCandle(asset.id, timeframe, candle);
-    savedCandles.push(savedCandle);
+  try {
+    await client.query("BEGIN");
+
+    for (const candle of validatedCandles) {
+      const savedCandle = await insertCandle(
+        client,
+        asset.id,
+        timeframe,
+        candle,
+      );
+      savedCandles.push(savedCandle);
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
 
   return {

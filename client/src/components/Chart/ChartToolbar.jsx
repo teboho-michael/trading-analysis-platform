@@ -1,27 +1,9 @@
 export default function ChartToolbar({
-  dashboard,
-  selectedAsset,
   selectedTimeframe,
-  onAssetChange,
   onTimeframeChange,
 }) {
   return (
     <div className="chart-controls" aria-label="Chart controls">
-      <label>
-        <span>Asset</span>
-        <select
-          aria-label="Asset"
-          value={selectedAsset}
-          onChange={(e) => onAssetChange(e.target.value)}
-        >
-          {dashboard.map((asset) => (
-            <option key={asset.id} value={asset.symbol}>
-              {asset.symbol}
-            </option>
-          ))}
-        </select>
-      </label>
-
       <label>
         <span>Timeframe</span>
         <select

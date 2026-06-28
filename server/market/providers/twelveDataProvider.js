@@ -1,5 +1,6 @@
 const axios = require("axios");
 const { getProviderSymbol } = require("../symbolMap");
+const { normalizeSymbol } = require("../candleValidator");
 
 const API_URL = "https://api.twelvedata.com/time_series";
 
@@ -19,7 +20,7 @@ const getInterval = (timeframe) => {
   return interval;
 };
 
-const normalizeCandle = (item) => {
+const normalizeCandle = (item, providerSymbol) => {
   return {
     open: Number(item.open),
     high: Number(item.high),
@@ -27,6 +28,7 @@ const normalizeCandle = (item) => {
     close: Number(item.close),
     volume: Number(item.volume || 0),
     candle_time: new Date(item.datetime),
+    source_symbol: providerSymbol,
   };
 };
 
@@ -95,6 +97,17 @@ const validateResponse = (data, internalSymbol, providerSymbol, timeframe) => {
       `NO_CANDLES: Empty candle array returned for ${internalSymbol} ${timeframe} using ${providerSymbol}`,
     );
   }
+
+  const responseSymbol = data.meta?.symbol;
+
+  if (
+    !responseSymbol ||
+    normalizeSymbol(responseSymbol) !== normalizeSymbol(providerSymbol)
+  ) {
+    throw new Error(
+      `DATA_VALIDATION_ERROR: Twelve Data returned ${responseSymbol || "no symbol metadata"} for requested ${internalSymbol} using ${providerSymbol}`,
+    );
+  }
 };
 
 const getCandles = async (internalSymbol, timeframe) => {
@@ -120,7 +133,7 @@ const getCandles = async (internalSymbol, timeframe) => {
     validateResponse(response.data, internalSymbol, providerSymbol, timeframe);
 
     return response.data.values
-      .map(normalizeCandle)
+      .map((item) => normalizeCandle(item, providerSymbol))
       .sort((a, b) => a.candle_time - b.candle_time);
   } catch (error) {
     if (error.response) {

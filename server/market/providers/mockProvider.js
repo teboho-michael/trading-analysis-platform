@@ -1,3 +1,5 @@
+const { getProviderSymbol } = require("../symbolMap");
+
 const getTimeframeMinutes = (timeframe) => {
   switch (timeframe) {
     case "D1":
@@ -13,9 +15,9 @@ const getTimeframeMinutes = (timeframe) => {
 const getBasePrice = (symbol) => {
   switch (symbol) {
     case "US500":
-      return 6500;
+      return 550;
     case "US100":
-      return 23000;
+      return 500;
     case "XAUUSD":
       return 3350;
     case "BTCUSD":
@@ -51,6 +53,7 @@ const getCandles = async (symbol, timeframe) => {
       close,
       volume: 1000 + i,
       candle_time: candleTime,
+      source_symbol: getProviderSymbol(symbol),
     });
   }
 

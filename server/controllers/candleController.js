@@ -74,24 +74,47 @@ const getCandlesByAssetAndTimeframe = async (req, res) => {
 
 const addCandle = async (req, res) => {
   try {
-    const { asset_id, timeframe, open, high, low, close, volume, candle_time } =
-      req.body;
-
-    const candle = await saveCandle(asset_id, timeframe, {
+    const {
+      asset_id,
+      symbol,
+      timeframe,
       open,
       high,
       low,
       close,
       volume,
       candle_time,
-    });
+    } = req.body;
+
+    if (!asset_id || !symbol || !timeframe) {
+      return res.status(400).json({
+        success: false,
+        error: "asset_id, symbol, and timeframe are required",
+      });
+    }
+
+    const candle = await saveCandle(
+      asset_id,
+      timeframe,
+      {
+        open,
+        high,
+        low,
+        close,
+        volume,
+        candle_time,
+      },
+      symbol,
+    );
 
     res.status(201).json({
       success: true,
       candle,
     });
   } catch (error) {
-    res.status(500).json({
+    const status = error.message?.includes("DATA_VALIDATION_ERROR") ? 400 : 500;
+
+    res.status(status).json({
       success: false,
       error: error.message,
     });

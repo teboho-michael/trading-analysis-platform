@@ -19,7 +19,9 @@ const collectMarketData = async (req, res) => {
       message: `${symbol} ${timeframe} collection completed`,
     });
   } catch (error) {
-    res.status(500).json({
+    const status = error.message?.includes("DATA_VALIDATION_ERROR") ? 422 : 500;
+
+    res.status(status).json({
       success: false,
       error: error.message,
     });

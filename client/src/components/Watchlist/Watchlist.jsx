@@ -1,0 +1,80 @@
+import {
+  getInstrument,
+  WATCHLIST_ORDER,
+} from "../../config/instruments";
+
+const formatPrice = (value) => {
+  const price = Number(value);
+  return Number.isFinite(price)
+    ? price.toLocaleString(undefined, { maximumFractionDigits: 5 })
+    : "—";
+};
+
+export default function Watchlist({
+  dashboard,
+  selectedAsset,
+  selectedLatestPrice,
+  onSelect,
+}) {
+  const assetsBySymbol = new Map(
+    dashboard.map((asset) => [asset.symbol, asset]),
+  );
+
+  return (
+    <aside className="watchlist panel-shell" aria-label="Market watchlist">
+      <div className="panel-heading">
+        <div>
+          <span className="eyebrow">Markets</span>
+          <h2>Watchlist</h2>
+        </div>
+        <span className="instrument-count">{WATCHLIST_ORDER.length}</span>
+      </div>
+
+      <div className="watchlist-rows">
+        {WATCHLIST_ORDER.map((symbol) => {
+          const asset = assetsBySymbol.get(symbol);
+          const instrument = getInstrument(symbol);
+          const displayBias =
+            asset?.signal && asset.signal !== "WAIT"
+              ? asset.signal
+              : asset?.h1Trend;
+          const latestPrice =
+            selectedAsset === symbol && selectedLatestPrice !== undefined
+              ? selectedLatestPrice
+              : asset?.latestPrice;
+
+          return (
+            <button
+              key={symbol}
+              type="button"
+              className={`watchlist-row${
+                selectedAsset === symbol ? " selected" : ""
+              }`}
+              aria-pressed={selectedAsset === symbol}
+              onClick={() => onSelect(symbol)}
+            >
+              <span className="watchlist-identity">
+                <strong>{symbol}</strong>
+                <small>{instrument.name}</small>
+                {instrument.proxySymbol && (
+                  <em>{instrument.proxySymbol} proxy</em>
+                )}
+              </span>
+
+              <span className="watchlist-market-data">
+                <strong>{formatPrice(latestPrice)}</strong>
+                <small
+                  className={`market-bias ${String(displayBias)
+                    .toLowerCase()
+                    .replaceAll(" ", "-")}`}
+                >
+                  {displayBias || "Neutral"}
+                </small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </aside>
+  );
+}

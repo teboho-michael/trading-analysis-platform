@@ -2,32 +2,7 @@ import { useEffect, useRef } from "react";
 import {
   createChart,
   CandlestickSeries,
-  LineSeries,
 } from "lightweight-charts";
-
-function calculateEMA(candles, period = 200) {
-  if (!candles || candles.length < period) return [];
-
-  const multiplier = 2 / (period + 1);
-  const emaData = [];
-
-  let ema =
-    candles
-      .slice(0, period)
-      .reduce((sum, candle) => sum + Number(candle.close), 0) / period;
-
-  for (let i = period; i < candles.length; i++) {
-    const close = Number(candles[i].close);
-    ema = close * multiplier + ema * (1 - multiplier);
-
-    emaData.push({
-      time: candles[i].chart_time,
-      value: Number(ema.toFixed(2)),
-    });
-  }
-
-  return emaData;
-}
 
 export default function Chart({ candles, activeZone, risk, latestSignal }) {
   const chartContainerRef = useRef(null);
@@ -36,37 +11,58 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
   useEffect(() => {
     if (!chartContainerRef.current || !candles || candles.length === 0) return;
 
-    const chart = createChart(chartContainerRef.current, {
+    const container = chartContainerRef.current;
+    const chart = createChart(container, {
       width: chartContainerRef.current.clientWidth,
-      height: 420,
+      height: chartContainerRef.current.clientHeight,
       layout: {
-        background: { color: "#111827" },
-        textColor: "#D9D9D9",
+        background: { color: "#0b0f17" },
+        textColor: "#8c98aa",
       },
       grid: {
-        vertLines: { color: "#1f2937" },
-        horzLines: { color: "#1f2937" },
+        vertLines: { color: "#171d29" },
+        horzLines: { color: "#171d29" },
       },
       rightPriceScale: {
-        borderColor: "#374151",
+        borderColor: "#252d3b",
+        scaleMargins: { top: 0.08, bottom: 0.08 },
       },
       timeScale: {
-        borderColor: "#374151",
+        borderColor: "#252d3b",
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 6,
+        barSpacing: 7,
+      },
+      crosshair: {
+        vertLine: { color: "#526177", labelBackgroundColor: "#293345" },
+        horzLine: { color: "#526177", labelBackgroundColor: "#293345" },
       },
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      borderUpColor: "#22c55e",
-      borderDownColor: "#ef4444",
-      wickUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
+      upColor: "#2dd4a7",
+      downColor: "#f05b69",
+      borderUpColor: "#2dd4a7",
+      borderDownColor: "#f05b69",
+      wickUpColor: "#2dd4a7",
+      wickDownColor: "#f05b69",
+      priceLineColor: "#8491a5",
     });
 
-    const visibleCandles = candles.slice(-160);
+    const visibleCandles = candles.slice(-180);
+    const marketLow = Math.min(...visibleCandles.map((candle) => candle.low));
+    const marketHigh = Math.max(...visibleCandles.map((candle) => candle.high));
+    const marketRange = marketHigh - marketLow;
+    const annotationPadding = Math.max(marketRange * 0.12, marketHigh * 0.001);
+    const isNearMarket = (price) => {
+      const numericPrice = Number(price);
+      return (
+        Number.isFinite(numericPrice) &&
+        numericPrice >= marketLow - annotationPadding &&
+        numericPrice <= marketHigh + annotationPadding
+      );
+    };
 
     candleSeries.setData(
       visibleCandles.map((candle) => ({
@@ -78,30 +74,29 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       }))
     );
 
-    const emaSeries = chart.addSeries(LineSeries, {
-      color: "#facc15",
-      lineWidth: 2,
-    });
-
-    emaSeries.setData(calculateEMA(candles, 200).slice(-160));
-
     const validActiveZone =
       activeZone?.status === "active" &&
       !activeZone.broken_at &&
       !activeZone.mitigated_at
         ? activeZone
         : null;
+    const visibleActiveZone =
+      validActiveZone &&
+      isNearMarket(validActiveZone.zone_high) &&
+      isNearMarket(validActiveZone.zone_low)
+        ? validActiveZone
+        : null;
 
     const updateZoneOverlay = () => {
-      if (!validActiveZone || !zoneOverlayRef.current) {
+      if (!visibleActiveZone || !zoneOverlayRef.current) {
         if (zoneOverlayRef.current) {
           zoneOverlayRef.current.style.display = "none";
         }
         return;
       }
 
-      const zoneHigh = Number(validActiveZone.zone_high);
-      const zoneLow = Number(validActiveZone.zone_low);
+      const zoneHigh = Number(visibleActiveZone.zone_high);
+      const zoneLow = Number(visibleActiveZone.zone_low);
 
       const highY = candleSeries.priceToCoordinate(zoneHigh);
       const lowY = candleSeries.priceToCoordinate(zoneLow);
@@ -115,29 +110,29 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       zoneOverlayRef.current.style.height = `${height}px`;
       zoneOverlayRef.current.style.display = "block";
       zoneOverlayRef.current.style.background =
-        validActiveZone.zone_type === "demand"
+        visibleActiveZone.zone_type === "demand"
           ? "rgba(34, 197, 94, 0.16)"
           : "rgba(239, 68, 68, 0.16)";
       zoneOverlayRef.current.style.borderTop =
-        validActiveZone.zone_type === "demand"
+        visibleActiveZone.zone_type === "demand"
           ? "1px dashed #22c55e"
           : "1px dashed #ef4444";
       zoneOverlayRef.current.style.borderBottom =
-        validActiveZone.zone_type === "demand"
+        visibleActiveZone.zone_type === "demand"
           ? "1px dashed #22c55e"
           : "1px dashed #ef4444";
     };
 
-    if (validActiveZone) {
+    if (visibleActiveZone) {
       const zoneColor =
-        validActiveZone.zone_type === "demand" ? "#22c55e" : "#ef4444";
+        visibleActiveZone.zone_type === "demand" ? "#2dd4a7" : "#f05b69";
       const zoneLabel =
-        validActiveZone.zone_type === "demand"
+        visibleActiveZone.zone_type === "demand"
           ? "DEMAND ZONE"
           : "SUPPLY ZONE";
 
       candleSeries.createPriceLine({
-        price: Number(validActiveZone.zone_high),
+        price: Number(visibleActiveZone.zone_high),
         color: zoneColor,
         lineWidth: 2,
         lineStyle: 2,
@@ -146,7 +141,7 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       });
 
       candleSeries.createPriceLine({
-        price: Number(validActiveZone.zone_low),
+        price: Number(visibleActiveZone.zone_low),
         color: zoneColor,
         lineWidth: 2,
         lineStyle: 2,
@@ -177,7 +172,7 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       if (price === null || price === undefined || price === "") return;
 
       const numericPrice = Number(price);
-      if (!Number.isFinite(numericPrice)) return;
+      if (!isNearMarket(numericPrice)) return;
 
       candleSeries.createPriceLine({
         price: numericPrice,
@@ -207,11 +202,14 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
 
     const overlayTimer = window.setTimeout(updateZoneOverlay, 100);
     const resizeObserver = new ResizeObserver(([entry]) => {
-      chart.applyOptions({ width: entry.contentRect.width });
+      chart.applyOptions({
+        width: entry.contentRect.width,
+        height: entry.contentRect.height,
+      });
       window.requestAnimationFrame(updateZoneOverlay);
     });
 
-    resizeObserver.observe(chartContainerRef.current);
+    resizeObserver.observe(container);
 
     chart.timeScale().subscribeVisibleTimeRangeChange(updateZoneOverlay);
 
@@ -224,7 +222,7 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
   }, [candles, activeZone, risk, latestSignal]);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "420px" }}>
+    <div className="chart-canvas">
       <div ref={chartContainerRef} className="chart-box" />
       <div
         ref={zoneOverlayRef}

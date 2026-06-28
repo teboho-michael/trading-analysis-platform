@@ -1,17 +1,16 @@
 import { useState } from "react";
 import TradingChartPanel from "./components/Chart/TradingChartPanel";
-import DashboardGrid from "./components/Dashboard/DashboardGrid";
-import ScanMonitor from "./components/ScanMonitor/ScanMonitor";
+import AnalysisPanel from "./components/Analysis/AnalysisPanel";
+import Watchlist from "./components/Watchlist/Watchlist";
 import { useDashboard } from "./hooks/useDashboard";
 import { useCandles } from "./hooks/useCandles";
-import { useScanRuns } from "./hooks/useScanRuns";
 import "./App.css";
 
 function App() {
-  const [selectedAsset, setSelectedAsset] = useState("US500");
+  const [selectedAsset, setSelectedAsset] = useState("BTCUSD");
   const [selectedTimeframe, setSelectedTimeframe] = useState("H1");
 
-  const { dashboard, loading, refreshDashboard } = useDashboard();
+  const { dashboard, loading, error, refreshDashboard } = useDashboard();
   const {
     candles,
     loading: candlesLoading,
@@ -22,54 +21,67 @@ function App() {
     selectedTimeframe,
   );
 
-  const { latestScanRun, scanRuns, refreshScanRuns } = useScanRuns();
-
   const selectedAssetData = dashboard.find(
-    (asset) => asset.symbol === selectedAsset
+    (asset) => asset.symbol === selectedAsset,
   );
+  const selectedCandles =
+    candles.length === 0 || candles[0]?.symbol === selectedAsset ? candles : [];
+  const latestPrice = selectedCandles.at(-1)?.close;
 
   const handleDataCollected = () => {
     refreshDashboard();
     refreshCandles();
-    refreshScanRuns();
   };
 
   if (loading) {
     return (
-      <div className="app">
-        <h2>Loading dashboard...</h2>
+      <div className="app-state" role="status">
+        Loading trading workspace…
+      </div>
+    );
+  }
+
+  if (error && dashboard.length === 0) {
+    return (
+      <div className="app-state error" role="alert">
+        <strong>Dashboard unavailable</strong>
+        <span>{error}</span>
+        <button type="button" onClick={refreshDashboard}>Retry</button>
       </div>
     );
   }
 
   return (
-    <div className="app">
-      <h1>Trading Analysis Dashboard</h1>
+    <div className="app-shell">
+      <header className="platform-header">
+        <div>
+          <span className="brand-mark" aria-hidden="true" />
+          <h1>Trading Analysis Platform</h1>
+        </div>
+        <span className="data-source">Backend candles · V1 analysis engine</span>
+      </header>
 
-      <ScanMonitor
-        latestScanRun={latestScanRun}
-        scanRuns={scanRuns}
-        onScanCompleted={handleDataCollected}
-      />
+      <main className="trading-workspace">
+        <Watchlist
+          dashboard={dashboard}
+          selectedAsset={selectedAsset}
+          selectedLatestPrice={latestPrice}
+          onSelect={setSelectedAsset}
+        />
 
-      <TradingChartPanel
-        dashboard={dashboard}
-        candles={candles}
-        candlesLoading={candlesLoading}
-        candlesError={candlesError}
-        selectedAsset={selectedAsset}
-        selectedTimeframe={selectedTimeframe}
-        selectedAssetData={selectedAssetData}
-        onAssetChange={setSelectedAsset}
-        onTimeframeChange={setSelectedTimeframe}
-        onDataCollected={handleDataCollected}
-      />
+        <TradingChartPanel
+          candles={selectedCandles}
+          candlesLoading={candlesLoading}
+          candlesError={candlesError}
+          selectedAsset={selectedAsset}
+          selectedTimeframe={selectedTimeframe}
+          selectedAssetData={selectedAssetData}
+          onTimeframeChange={setSelectedTimeframe}
+          onDataCollected={handleDataCollected}
+        />
 
-      <DashboardGrid
-        dashboard={dashboard}
-        selectedAsset={selectedAsset}
-        onAssetSelect={setSelectedAsset}
-      />
+        <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} />
+      </main>
     </div>
   );
 }
