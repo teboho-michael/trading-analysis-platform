@@ -1,4 +1,4 @@
-export default function AssetCard({ asset }) {
+export default function AssetCard({ asset, selected, onSelect }) {
   const zoneType = asset.activeZone ? asset.activeZone.zone_type : "None";
 
   const distancePercent =
@@ -11,7 +11,20 @@ export default function AssetCard({ asset }) {
     asset.zoneProximity?.isNearZone === true ? "Yes" : "No";
 
   return (
-    <div className="card">
+    <div
+      className={`card selectable-card${selected ? " selected-card" : ""}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`Show ${asset.symbol} chart`}
+      onClick={() => onSelect(asset.symbol)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(asset.symbol);
+        }
+      }}
+    >
       <div className="card-header">
         <h2>{asset.symbol}</h2>
 

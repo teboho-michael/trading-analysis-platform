@@ -12,9 +12,14 @@ function App() {
   const [selectedTimeframe, setSelectedTimeframe] = useState("H1");
 
   const { dashboard, loading, refreshDashboard } = useDashboard();
-  const { candles, refreshCandles } = useCandles(
+  const {
+    candles,
+    loading: candlesLoading,
+    error: candlesError,
+    refreshCandles,
+  } = useCandles(
     selectedAsset,
-    selectedTimeframe
+    selectedTimeframe,
   );
 
   const { latestScanRun, scanRuns, refreshScanRuns } = useScanRuns();
@@ -41,11 +46,17 @@ function App() {
     <div className="app">
       <h1>Trading Analysis Dashboard</h1>
 
-      <ScanMonitor latestScanRun={latestScanRun} scanRuns={scanRuns} />
+      <ScanMonitor
+        latestScanRun={latestScanRun}
+        scanRuns={scanRuns}
+        onScanCompleted={handleDataCollected}
+      />
 
       <TradingChartPanel
         dashboard={dashboard}
         candles={candles}
+        candlesLoading={candlesLoading}
+        candlesError={candlesError}
         selectedAsset={selectedAsset}
         selectedTimeframe={selectedTimeframe}
         selectedAssetData={selectedAssetData}
@@ -54,7 +65,11 @@ function App() {
         onDataCollected={handleDataCollected}
       />
 
-      <DashboardGrid dashboard={dashboard} />
+      <DashboardGrid
+        dashboard={dashboard}
+        selectedAsset={selectedAsset}
+        onAssetSelect={setSelectedAsset}
+      />
     </div>
   );
 }

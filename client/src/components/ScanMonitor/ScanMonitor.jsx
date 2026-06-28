@@ -1,9 +1,55 @@
-export default function ScanMonitor({ latestScanRun, scanRuns }) {
+import { useState } from "react";
+import { runMarketScan } from "../../services/marketService";
+
+export default function ScanMonitor({
+  latestScanRun,
+  scanRuns,
+  onScanCompleted,
+}) {
+  const [scanning, setScanning] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+
+  const handleScan = async () => {
+    try {
+      setScanning(true);
+      setFeedback(null);
+
+      const result = await runMarketScan();
+      const scanRun = result.results?.scanRun;
+
+      setFeedback({
+        type: "success",
+        message: `Scan completed: ${scanRun?.successful_collections ?? 0}/${scanRun?.total_collections ?? 15} collections successful.`,
+      });
+      onScanCompleted?.();
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message:
+          error.response?.data?.error ||
+          error.response?.data?.message ||
+          "Market scan failed.",
+      });
+    } finally {
+      setScanning(false);
+    }
+  };
+
   if (!latestScanRun) {
     return (
       <div className="scan-monitor">
-        <h2>Market Scanner</h2>
+        <div className="scan-monitor-header">
+          <h2>Market Scanner</h2>
+          <button type="button" onClick={handleScan} disabled={scanning}>
+            {scanning ? "Scanning…" : "Run Full Scan"}
+          </button>
+        </div>
         <p>No scan history found yet.</p>
+        {feedback && (
+          <p className={`scan-feedback ${feedback.type}`} role="status">
+            {feedback.message}
+          </p>
+        )}
       </div>
     );
   }
@@ -17,16 +63,33 @@ export default function ScanMonitor({ latestScanRun, scanRuns }) {
       <div className="scan-monitor-header">
         <h2>Market Scanner</h2>
 
-        <span
-          className={
-            latestScanRun.status === "completed"
-              ? "scan-status-success"
-              : "scan-status-warning"
-          }
-        >
-          {latestScanRun.status}
-        </span>
+        <div className="scan-actions">
+          <span
+            className={
+              latestScanRun.status === "completed"
+                ? "scan-status-success"
+                : "scan-status-warning"
+            }
+          >
+            {latestScanRun.status}
+          </span>
+          <button type="button" onClick={handleScan} disabled={scanning}>
+            {scanning ? "Scanning…" : "Run Full Scan"}
+          </button>
+        </div>
       </div>
+
+      {scanning && (
+        <p className="scan-feedback" role="status">
+          Full live scan is running. This can take several minutes.
+        </p>
+      )}
+
+      {feedback && (
+        <p className={`scan-feedback ${feedback.type}`} role="status">
+          {feedback.message}
+        </p>
+      )}
 
       <div className="scan-summary-grid">
         <div className="scan-summary-card">

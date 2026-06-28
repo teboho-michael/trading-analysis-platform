@@ -1,28 +1,56 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCandles } from "../services/candleService";
 
 export const useCandles = (symbol, timeframe) => {
   const [candles, setCandles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const requestIdRef = useRef(0);
 
-  const fetchCandles = async () => {
+  const fetchCandles = useCallback(async ({ showLoading = true } = {}) => {
+    const requestId = ++requestIdRef.current;
+
     try {
+      if (showLoading) setLoading(true);
+      setError("");
+
       const data = await getCandles(symbol, timeframe);
+
+      if (requestId !== requestIdRef.current) return;
       setCandles(data);
     } catch (error) {
-      console.error(error);
+      if (requestId !== requestIdRef.current) return;
+
+      setCandles([]);
+      setError(
+        error.response?.data?.error ||
+          error.response?.data?.message ||
+          "Unable to load candles.",
+      );
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-  };
+  }, [symbol, timeframe]);
 
   useEffect(() => {
-    fetchCandles();
+    setCandles([]);
+    fetchCandles({ showLoading: true });
 
-    const interval = setInterval(fetchCandles, 10000);
+    const interval = setInterval(
+      () => fetchCandles({ showLoading: false }),
+      10000,
+    );
 
-    return () => clearInterval(interval);
-  }, [symbol, timeframe]);
+    return () => {
+      clearInterval(interval);
+      requestIdRef.current += 1;
+    };
+  }, [fetchCandles]);
 
   return {
     candles,
+    loading,
+    error,
     refreshCandles: fetchCandles,
   };
 };

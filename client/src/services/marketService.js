@@ -8,3 +8,9 @@ export const collectMarketData = async (symbol, timeframe) => {
 
   return response.data;
 };
+
+export const runMarketScan = async () => {
+  const response = await api.post("/market/scan");
+
+  return response.data;
+};

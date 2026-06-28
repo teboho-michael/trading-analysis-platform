@@ -85,11 +85,23 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
 
     emaSeries.setData(calculateEMA(candles, 200).slice(-160));
 
-    const updateZoneOverlay = () => {
-      if (!activeZone || !zoneOverlayRef.current) return;
+    const validActiveZone =
+      activeZone?.status === "active" &&
+      !activeZone.broken_at &&
+      !activeZone.mitigated_at
+        ? activeZone
+        : null;
 
-      const zoneHigh = Number(activeZone.zone_high);
-      const zoneLow = Number(activeZone.zone_low);
+    const updateZoneOverlay = () => {
+      if (!validActiveZone || !zoneOverlayRef.current) {
+        if (zoneOverlayRef.current) {
+          zoneOverlayRef.current.style.display = "none";
+        }
+        return;
+      }
+
+      const zoneHigh = Number(validActiveZone.zone_high);
+      const zoneLow = Number(validActiveZone.zone_low);
 
       const highY = candleSeries.priceToCoordinate(zoneHigh);
       const lowY = candleSeries.priceToCoordinate(zoneLow);
@@ -103,98 +115,110 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       zoneOverlayRef.current.style.height = `${height}px`;
       zoneOverlayRef.current.style.display = "block";
       zoneOverlayRef.current.style.background =
-        activeZone.zone_type === "demand"
+        validActiveZone.zone_type === "demand"
           ? "rgba(34, 197, 94, 0.16)"
           : "rgba(239, 68, 68, 0.16)";
       zoneOverlayRef.current.style.borderTop =
-        activeZone.zone_type === "demand"
+        validActiveZone.zone_type === "demand"
           ? "1px dashed #22c55e"
           : "1px dashed #ef4444";
       zoneOverlayRef.current.style.borderBottom =
-        activeZone.zone_type === "demand"
+        validActiveZone.zone_type === "demand"
           ? "1px dashed #22c55e"
           : "1px dashed #ef4444";
     };
 
-    if (activeZone) {
+    if (validActiveZone) {
       const zoneColor =
-        activeZone.zone_type === "demand" ? "#22c55e" : "#ef4444";
+        validActiveZone.zone_type === "demand" ? "#22c55e" : "#ef4444";
+      const zoneLabel =
+        validActiveZone.zone_type === "demand"
+          ? "DEMAND ZONE"
+          : "SUPPLY ZONE";
 
       candleSeries.createPriceLine({
-        price: Number(activeZone.zone_high),
+        price: Number(validActiveZone.zone_high),
         color: zoneColor,
         lineWidth: 2,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: `${activeZone.zone_type.toUpperCase()} HIGH`,
+        title: `${zoneLabel} HIGH`,
       });
 
       candleSeries.createPriceLine({
-        price: Number(activeZone.zone_low),
+        price: Number(validActiveZone.zone_low),
         color: zoneColor,
         lineWidth: 2,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: `${activeZone.zone_type.toUpperCase()} LOW`,
+        title: `${zoneLabel} LOW`,
       });
     }
 
-    if (risk) {
-      candleSeries.createPriceLine({
-        price: Number(risk.entryPrice),
-        color: "#3b82f6",
-        lineWidth: 2,
-        lineStyle: 0,
-        axisLabelVisible: true,
-        title: "ENTRY",
-      });
+    const signalLevels = latestSignal
+      ? {
+          direction: latestSignal.signal_type,
+          entry: latestSignal.entry_price,
+          stopLoss: latestSignal.stop_loss,
+          takeProfit1: latestSignal.take_profit_1,
+          takeProfit2: latestSignal.take_profit_2,
+        }
+      : risk
+        ? {
+            direction: null,
+            entry: risk.entryPrice,
+            stopLoss: risk.stopLoss,
+            takeProfit1: risk.takeProfit1,
+            takeProfit2: risk.takeProfit2,
+          }
+        : null;
+
+    const addLevel = (price, color, title, lineWidth = 2) => {
+      if (price === null || price === undefined || price === "") return;
+
+      const numericPrice = Number(price);
+      if (!Number.isFinite(numericPrice)) return;
 
       candleSeries.createPriceLine({
-        price: Number(risk.stopLoss),
-        color: "#ef4444",
-        lineWidth: 2,
+        price: numericPrice,
+        color,
+        lineWidth,
         lineStyle: 0,
         axisLabelVisible: true,
-        title: "STOP LOSS",
+        title,
       });
+    };
 
-      candleSeries.createPriceLine({
-        price: Number(risk.takeProfit1),
-        color: "#22c55e",
-        lineWidth: 2,
-        lineStyle: 0,
-        axisLabelVisible: true,
-        title: "TP1",
-      });
-
-      candleSeries.createPriceLine({
-        price: Number(risk.takeProfit2),
-        color: "#16a34a",
-        lineWidth: 2,
-        lineStyle: 0,
-        axisLabelVisible: true,
-        title: "TP2",
-      });
-    }
-
-    if (latestSignal) {
-      candleSeries.createPriceLine({
-        price: Number(latestSignal.entry_price),
-        color: latestSignal.signal_type === "BUY" ? "#22c55e" : "#ef4444",
-        lineWidth: 3,
-        lineStyle: 0,
-        axisLabelVisible: true,
-        title: `${latestSignal.signal_type} SIGNAL`,
-      });
+    if (signalLevels) {
+      addLevel(
+        signalLevels.entry,
+        "#3b82f6",
+        signalLevels.direction
+          ? `${signalLevels.direction} ENTRY`
+          : "SETUP ENTRY",
+        3,
+      );
+      addLevel(signalLevels.stopLoss, "#ef4444", "STOP LOSS");
+      addLevel(signalLevels.takeProfit1, "#22c55e", "TAKE PROFIT 1");
+      addLevel(signalLevels.takeProfit2, "#16a34a", "TAKE PROFIT 2");
     }
 
     chart.timeScale().fitContent();
 
-    setTimeout(updateZoneOverlay, 100);
+    const overlayTimer = window.setTimeout(updateZoneOverlay, 100);
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      chart.applyOptions({ width: entry.contentRect.width });
+      window.requestAnimationFrame(updateZoneOverlay);
+    });
+
+    resizeObserver.observe(chartContainerRef.current);
 
     chart.timeScale().subscribeVisibleTimeRangeChange(updateZoneOverlay);
 
     return () => {
+      window.clearTimeout(overlayTimer);
+      resizeObserver.disconnect();
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(updateZoneOverlay);
       chart.remove();
     };
   }, [candles, activeZone, risk, latestSignal]);
