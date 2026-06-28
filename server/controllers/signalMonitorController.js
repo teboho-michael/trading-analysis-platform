@@ -6,6 +6,7 @@ const getSignalMonitor = async (req, res) => {
       `
             SELECT 
                 s.id,
+                s.zone_id,
                 a.symbol,
                 s.signal_type,
                 s.entry_price,
@@ -14,6 +15,9 @@ const getSignalMonitor = async (req, res) => {
                 s.take_profit_2,
                 s.risk_reward,
                 s.status,
+                s.closed_at,
+                s.exit_price,
+                s.outcome_reason,
                 s.created_at
             FROM signals s
             JOIN assets a ON a.id = s.asset_id

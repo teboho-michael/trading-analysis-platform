@@ -2,6 +2,7 @@ const pool = require("../db/connection");
 const { calculateEMA } = require("../analysis/emaEngine");
 const { calculateTrendFromCandles } = require("../analysis/trendEngine");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
+const { createSignalForZone } = require("../services/signalService");
 
 const fetchCandles = async (symbol, timeframe) => {
   const result = await pool.query(
@@ -144,32 +145,29 @@ const getTradeSetup = async (req, res) => {
     }
 
     const entryPrice = h1.lastClose;
-    const risk = calculateRiskLevels(signal, entryPrice);
+    const risk = calculateRiskLevels(symbol, signal, entryPrice, activeZone);
 
     let savedSignal = null;
 
     if (risk && signal !== "WAIT") {
       const signalType = signal === "BUY SETUP" ? "BUY" : "SELL";
 
-      const savedResult = await pool.query(
-        `
-                INSERT INTO signals
-                (asset_id, signal_type, entry_price, stop_loss, take_profit_1, take_profit_2, risk_reward, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
-                RETURNING *
-                `,
-        [
-          assetId,
-          signalType,
-          risk.entryPrice,
-          risk.stopLoss,
-          risk.takeProfit1,
-          risk.takeProfit2,
-          2,
-        ],
-      );
+      const savedResult = await createSignalForZone({
+        assetId,
+        zoneId: activeZone.id,
+        signalType,
+        entryPrice: risk.entryPrice,
+        stopLoss: risk.stopLoss,
+        takeProfit1: risk.takeProfit1,
+        takeProfit2: risk.takeProfit2,
+        riskReward: 2,
+        riskAmount: risk.riskAmount,
+        accountRiskAmount: risk.accountRiskAmount,
+        positionSizeUnits: risk.positionSizeUnits,
+        positionSizeNote: risk.positionSizeNote,
+      });
 
-      savedSignal = savedResult.rows[0];
+      savedSignal = savedResult.signal;
     }
 
     res.json({

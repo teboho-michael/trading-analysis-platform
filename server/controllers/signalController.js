@@ -1,10 +1,12 @@
 const pool = require("../db/connection");
+const { createSignalForZone } = require("../services/signalService");
 
 const getAllSignals = async (req, res) => {
   try {
     const result = await pool.query(`
             SELECT
                 signals.id,
+                signals.zone_id,
                 assets.symbol,
                 signals.signal_type,
                 signals.entry_price,
@@ -13,6 +15,9 @@ const getAllSignals = async (req, res) => {
                 signals.take_profit_2,
                 signals.risk_reward,
                 signals.status,
+                signals.closed_at,
+                signals.exit_price,
+                signals.outcome_reason,
                 signals.created_at
             FROM signals
             JOIN assets ON signals.asset_id = assets.id
@@ -35,6 +40,7 @@ const addSignal = async (req, res) => {
   try {
     const {
       asset_id,
+      zone_id,
       signal_type,
       entry_price,
       stop_loss,
@@ -44,31 +50,25 @@ const addSignal = async (req, res) => {
       status,
     } = req.body;
 
-    const result = await pool.query(
-      `
-            INSERT INTO signals
-            (asset_id, signal_type, entry_price, stop_loss, take_profit_1, take_profit_2, risk_reward, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'active'))
-            RETURNING *
-            `,
-      [
-        asset_id,
-        signal_type,
-        entry_price,
-        stop_loss,
-        take_profit_1,
-        take_profit_2,
-        risk_reward,
-        status,
-      ],
-    );
+    const result = await createSignalForZone({
+      assetId: asset_id,
+      zoneId: zone_id,
+      signalType: signal_type,
+      entryPrice: entry_price,
+      stopLoss: stop_loss,
+      takeProfit1: take_profit_1,
+      takeProfit2: take_profit_2,
+      riskReward: risk_reward,
+      status: status || "active",
+    });
 
-    res.status(201).json({
+    res.status(result.created ? 201 : 200).json({
       success: true,
-      signal: result.rows[0],
+      created: result.created,
+      signal: result.signal,
     });
   } catch (error) {
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       error: error.message,
     });

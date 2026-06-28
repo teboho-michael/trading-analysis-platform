@@ -8,6 +8,7 @@ const {
   evaluateSignalLifecycle,
 } = require("../analysis/signalLifecycleEngine");
 const { cleanupOldCandles } = require("../market/candleRetention");
+const { createSignalForZone } = require("../services/signalService");
 
 const getProviderRequestDelay = () => {
   return Number(process.env.PROVIDER_REQUEST_DELAY_MS || 10000);
@@ -38,7 +39,7 @@ const collectCandlesWithRetry = async (symbol, timeframe) => {
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await collectCandlesWithRetry(symbol, timeframe);
+      return await collectCandlesForAsset(symbol, timeframe);
     } catch (error) {
       const isLastAttempt = attempt === maxRetries;
 
@@ -255,25 +256,7 @@ const updateSignalLifecycle = async (assetId) => {
     const lifecycle = evaluateSignalLifecycle(signal, latestCandle);
 
     if (lifecycle.status !== "active") {
-      let exitPrice = null;
-      let outcomeReason = lifecycle.outcome || null;
-
-      if (lifecycle.status === "stopped_out") {
-        exitPrice = signal.stop_loss;
-        outcomeReason = "STOP_LOSS_HIT";
-      }
-
-      if (lifecycle.status === "tp1_hit") {
-        exitPrice = signal.take_profit_1;
-        outcomeReason = "TAKE_PROFIT_1_HIT";
-      }
-
-      if (lifecycle.status === "tp2_hit") {
-        exitPrice = signal.take_profit_2;
-        outcomeReason = "TAKE_PROFIT_2_HIT";
-      }
-
-      await pool.query(
+      const updated = await pool.query(
         `
         UPDATE signals
         SET 
@@ -282,11 +265,17 @@ const updateSignalLifecycle = async (assetId) => {
           exit_price = $2,
           outcome_reason = $3
         WHERE id = $4
+        AND status = 'active'
         `,
-        [lifecycle.status, exitPrice, outcomeReason, signal.id],
+        [
+          lifecycle.status,
+          lifecycle.exitPrice,
+          lifecycle.outcomeReason,
+          signal.id,
+        ],
       );
 
-      signalsUpdated += 1;
+      signalsUpdated += updated.rowCount;
     }
   }
 
@@ -356,7 +345,7 @@ const expireActiveSignalsForAsset = async (
   };
 };
 
-const saveSignalIfValid = async (assetId, signal, risk) => {
+const saveSignalIfValid = async (assetId, zoneId, signal, risk) => {
   if (!risk || signal === "WAIT") {
     const expired = await expireActiveSignalsForAsset(
       assetId,
@@ -385,65 +374,24 @@ const saveSignalIfValid = async (assetId, signal, risk) => {
     [assetId, oppositeSignalType],
   );
 
-  const duplicateCheck = await pool.query(
-    `
-        SELECT *
-        FROM signals
-        WHERE asset_id = $1
-        AND signal_type = $2
-        AND entry_price = $3
-        AND status = 'active'
-        ORDER BY created_at DESC
-        LIMIT 1
-        `,
-    [assetId, signalType, risk.entryPrice],
-  );
+  const saved = await createSignalForZone({
+    assetId,
+    zoneId,
+    signalType,
+    entryPrice: risk.entryPrice,
+    stopLoss: risk.stopLoss,
+    takeProfit1: risk.takeProfit1,
+    takeProfit2: risk.takeProfit2,
+    riskReward: 2,
+    riskAmount: risk.riskAmount,
+    accountRiskAmount: risk.accountRiskAmount,
+    positionSizeUnits: risk.positionSizeUnits,
+    positionSizeNote: risk.positionSizeNote,
+  });
 
-  if (duplicateCheck.rows.length > 0) {
-    return {
-      signal: duplicateCheck.rows[0],
-      created: false,
-      expiredCount: 0,
-    };
-  }
-
-  const saved = await pool.query(
-    `
-    INSERT INTO signals
-    (
-        asset_id,
-        signal_type,
-        entry_price,
-        stop_loss,
-        take_profit_1,
-        take_profit_2,
-        risk_reward,
-        risk_amount,
-        account_risk_amount,
-        position_size_units,
-        position_size_note,
-        status
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
-    RETURNING *
-    `,
-    [
-      assetId,
-      signalType,
-      risk.entryPrice,
-      risk.stopLoss,
-      risk.takeProfit1,
-      risk.takeProfit2,
-      2,
-      risk.riskAmount,
-      risk.accountRiskAmount,
-      risk.positionSizeUnits,
-      risk.positionSizeNote,
-    ],
-  );
   return {
-    signal: saved.rows[0],
-    created: true,
+    signal: saved.signal,
+    created: saved.created,
     expiredCount: 0,
   };
 };
@@ -508,7 +456,12 @@ const analyzeAsset = async (symbol) => {
     latestPrice,
     activeZone,
   );
-  const savedSignalResult = await saveSignalIfValid(asset.id, signal, risk);
+  const savedSignalResult = await saveSignalIfValid(
+    asset.id,
+    activeZone?.id,
+    signal,
+    risk,
+  );
 
   return {
     symbol,
@@ -590,7 +543,7 @@ const runMarketScan = async (scanType = "manual") => {
   for (const symbol of assets) {
     for (const timeframe of timeframes) {
       try {
-        await collectCandlesForAsset(symbol, timeframe);
+        await collectCandlesWithRetry(symbol, timeframe);
 
         collectionResults.push({
           symbol,
