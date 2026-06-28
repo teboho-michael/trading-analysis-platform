@@ -1,7 +1,8 @@
 const pool = require("../db/connection");
 const { calculateTrendFromCandles } = require("../analysis/trendEngine");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
-const { evaluateZoneLifecycle } = require("../analysis/zoneLifecycleEngine");
+const { updateZoneLifecycle } = require("../services/zoneLifecycleService");
+const { getActiveZone } = require("../services/zoneService");
 
 const ZONE_PROXIMITY_PERCENT = 0.003; // 0.3%
 
@@ -24,98 +25,6 @@ const fetchCandles = async (assetId, timeframe) => {
 const getTrend = async (assetId, timeframe) => {
   const candles = await fetchCandles(assetId, timeframe);
   return calculateTrendFromCandles(candles, 200);
-};
-
-const getActiveZone = async (assetId) => {
-  const result = await pool.query(
-    `
-        SELECT *
-FROM zones
-WHERE asset_id = $1
-AND timeframe = 'H4'
-AND status = 'active'
-AND broken_at IS NULL
-AND mitigated_at IS NULL
-ORDER BY strength DESC, source_time DESC, created_at DESC
-LIMIT 1
-        `,
-    [assetId],
-  );
-
-  return result.rows[0] || null;
-};
-
-const updateZoneLifecycle = async (assetId) => {
-  const candles = await fetchCandles(assetId, "H1");
-
-  if (!candles || candles.length === 0) {
-    return {
-      zonesChecked: 0,
-      zonesTouched: 0,
-      zonesMitigated: 0,
-      zonesBroken: 0,
-    };
-  }
-
-  const latestCandle = candles[0];
-
-  const zonesResult = await pool.query(
-    `
-        SELECT *
-        FROM zones
-        WHERE asset_id = $1
-        AND status = 'active'
-        AND broken_at IS NULL
-        `,
-    [assetId],
-  );
-
-  const zones = zonesResult.rows;
-
-  let zonesTouched = 0;
-  let zonesMitigated = 0;
-  let zonesBroken = 0;
-
-  for (const zone of zones) {
-    const lifecycle = evaluateZoneLifecycle(zone, latestCandle);
-
-    if (lifecycle.broken) {
-      await pool.query(
-        `
-                UPDATE zones
-                SET broken_at = CURRENT_TIMESTAMP
-                WHERE id = $1
-                `,
-        [zone.id],
-      );
-
-      zonesBroken += 1;
-      continue;
-    }
-
-    if (lifecycle.touched) {
-      await pool.query(
-        `
-                UPDATE zones
-SET 
-    broken_at = COALESCE(broken_at, CURRENT_TIMESTAMP),
-    status = 'broken'
-WHERE id = $1
-                `,
-        [zone.id],
-      );
-
-      zonesTouched += 1;
-      zonesMitigated += 1;
-    }
-  }
-
-  return {
-    zonesChecked: zones.length,
-    zonesTouched,
-    zonesMitigated,
-    zonesBroken,
-  };
 };
 
 const getLatestSignal = async (assetId) => {

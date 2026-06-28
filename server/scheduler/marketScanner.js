@@ -3,12 +3,13 @@ const { collectCandlesForAsset } = require("../market/candleCollector");
 const { calculateTrendFromCandles } = require("../analysis/trendEngine");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
 const { detectZones } = require("../analysis/zoneEngine");
-const { evaluateZoneLifecycle } = require("../analysis/zoneLifecycleEngine");
 const {
   evaluateSignalLifecycle,
 } = require("../analysis/signalLifecycleEngine");
 const { cleanupOldCandles } = require("../market/candleRetention");
 const { createSignalForZone } = require("../services/signalService");
+const { updateZoneLifecycle } = require("../services/zoneLifecycleService");
+const { getActiveZone, saveDetectedZone } = require("../services/zoneService");
 
 const getProviderRequestDelay = () => {
   return Number(process.env.PROVIDER_REQUEST_DELAY_MS || 10000);
@@ -92,38 +93,9 @@ const saveDetectedZones = async (assetId, timeframe) => {
   const savedZones = [];
 
   for (const zone of zones) {
-    const saved = await pool.query(
-      `
-            INSERT INTO zones
-            (
-                asset_id,
-                zone_type,
-                zone_high,
-                zone_low,
-                timeframe,
-                status,
-                strength,
-                source_time
-            )
-            VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)
-            ON CONFLICT (asset_id, timeframe, zone_type, zone_high, zone_low, status)
-            DO UPDATE SET
-                strength = EXCLUDED.strength,
-                source_time = EXCLUDED.source_time
-            RETURNING *
-            `,
-      [
-        assetId,
-        zone.zone_type,
-        zone.zone_high,
-        zone.zone_low,
-        timeframe,
-        zone.strength || 1,
-        zone.source_time || null,
-      ],
-    );
+    const saved = await saveDetectedZone(assetId, timeframe, zone);
 
-    savedZones.push(saved.rows[0]);
+    savedZones.push(saved.zone);
   }
 
   return savedZones;
@@ -132,98 +104,6 @@ const saveDetectedZones = async (assetId, timeframe) => {
 const getTrend = async (assetId, timeframe) => {
   const candles = await fetchCandles(assetId, timeframe);
   return calculateTrendFromCandles(candles, 200);
-};
-
-const getActiveZone = async (assetId) => {
-  const result = await pool.query(
-    `
-       SELECT *
-FROM zones
-WHERE asset_id = $1
-AND timeframe = 'H4'
-AND status = 'active'
-AND broken_at IS NULL
-AND mitigated_at IS NULL
-ORDER BY strength DESC, source_time DESC, created_at DESC
-LIMIT 1
-        `,
-    [assetId],
-  );
-
-  return result.rows[0] || null;
-};
-
-const updateZoneLifecycle = async (assetId) => {
-  const h1Candles = await fetchCandles(assetId, "H1");
-
-  if (!h1Candles || h1Candles.length === 0) {
-    return {
-      zonesChecked: 0,
-      zonesTouched: 0,
-      zonesMitigated: 0,
-      zonesBroken: 0,
-    };
-  }
-
-  const latestCandle = h1Candles[0];
-
-  const zonesResult = await pool.query(
-    `
-        SELECT *
-        FROM zones
-        WHERE asset_id = $1
-        AND status = 'active'
-        AND broken_at IS NULL
-        `,
-    [assetId],
-  );
-
-  const zones = zonesResult.rows;
-
-  let zonesTouched = 0;
-  let zonesMitigated = 0;
-  let zonesBroken = 0;
-
-  for (const zone of zones) {
-    const lifecycle = evaluateZoneLifecycle(zone, latestCandle);
-
-    if (lifecycle.broken) {
-      await pool.query(
-        `
-                UPDATE zones
-                SET broken_at = CURRENT_TIMESTAMP
-                WHERE id = $1
-                `,
-        [zone.id],
-      );
-
-      zonesBroken += 1;
-      continue;
-    }
-
-    if (lifecycle.touched) {
-      await pool.query(
-        `
-                UPDATE zones
-SET 
-    broken_at = COALESCE(broken_at, CURRENT_TIMESTAMP),
-    status = 'broken'
-WHERE id = $1
-                `,
-        [zone.id],
-      );
-
-      zonesTouched += 1;
-      zonesMitigated += 1;
-    }
-  }
-
-  return {
-    zonesChecked: zones.length,
-    zonesTouched,
-    zonesMitigated,
-    zonesBroken,
-  };
 };
 
 const updateSignalLifecycle = async (assetId) => {

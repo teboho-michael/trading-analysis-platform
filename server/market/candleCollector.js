@@ -81,4 +81,5 @@ const collectCandlesForAsset = async (symbol, timeframe) => {
 
 module.exports = {
   collectCandlesForAsset,
+  saveCandle,
 };

@@ -1,10 +1,13 @@
 const { calculateEMA } = require("./emaEngine");
 
 const calculateTrendFromCandles = (candles, period = 200) => {
-  if (!candles || candles.length < period) {
+  const requiredCandles = period + 1;
+
+  if (!candles || candles.length < requiredCandles) {
     return {
       success: false,
       trend: "Insufficient Data",
+      requiredCandles,
       availableCandles: candles ? candles.length : 0,
     };
   }
@@ -13,6 +16,7 @@ const calculateTrendFromCandles = (candles, period = 200) => {
     (a, b) => new Date(a.candle_time) - new Date(b.candle_time),
   );
 
+  const previousEma200 = calculateEMA(sortedCandles.slice(0, -1), period);
   const ema200 = calculateEMA(sortedCandles, period);
 
   const previousClose = Number(sortedCandles[sortedCandles.length - 2].close);
@@ -20,15 +24,16 @@ const calculateTrendFromCandles = (candles, period = 200) => {
 
   let trend = "Neutral";
 
-  if (previousClose > ema200 && lastClose > ema200) {
+  if (previousClose > previousEma200 && lastClose > ema200) {
     trend = "Bullish";
-  } else if (previousClose < ema200 && lastClose < ema200) {
+  } else if (previousClose < previousEma200 && lastClose < ema200) {
     trend = "Bearish";
   }
 
   return {
     success: true,
     ema200,
+    previousEma200,
     previousClose,
     lastClose,
     trend,

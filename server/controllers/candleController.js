@@ -1,4 +1,5 @@
 const pool = require("../db/connection");
+const { saveCandle } = require("../market/candleCollector");
 
 const getAllCandles = async (req, res) => {
   try {
@@ -76,19 +77,18 @@ const addCandle = async (req, res) => {
     const { asset_id, timeframe, open, high, low, close, volume, candle_time } =
       req.body;
 
-    const result = await pool.query(
-      `
-            INSERT INTO candles 
-            (asset_id, timeframe, open, high, low, close, volume, candle_time)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            RETURNING *
-            `,
-      [asset_id, timeframe, open, high, low, close, volume, candle_time],
-    );
+    const candle = await saveCandle(asset_id, timeframe, {
+      open,
+      high,
+      low,
+      close,
+      volume,
+      candle_time,
+    });
 
     res.status(201).json({
       success: true,
-      candle: result.rows[0],
+      candle,
     });
   } catch (error) {
     res.status(500).json({

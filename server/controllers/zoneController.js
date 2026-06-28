@@ -1,5 +1,6 @@
 const pool = require("../db/connection");
 const { detectZones } = require("../analysis/zoneEngine");
+const { saveDetectedZone } = require("../services/zoneService");
 
 const getAllZones = async (req, res) => {
   try {
@@ -12,6 +13,11 @@ const getAllZones = async (req, res) => {
                 zones.zone_low,
                 zones.timeframe,
                 zones.status,
+                zones.strength,
+                zones.source_time,
+                zones.touched_at,
+                zones.mitigated_at,
+                zones.broken_at,
                 zones.created_at
             FROM zones
             JOIN assets ON zones.asset_id = assets.id
@@ -64,17 +70,9 @@ const detectAndSaveZones = async (req, res) => {
     const savedZones = [];
 
     for (const zone of detectedZones) {
-      const saved = await pool.query(
-        `
-                INSERT INTO zones
-                (asset_id, zone_type, zone_high, zone_low, timeframe, status)
-                VALUES ($1, $2, $3, $4, $5, 'active')
-                RETURNING *
-                `,
-        [assetId, zone.zone_type, zone.zone_high, zone.zone_low, timeframe],
-      );
+      const saved = await saveDetectedZone(assetId, timeframe, zone);
 
-      savedZones.push(saved.rows[0]);
+      savedZones.push(saved.zone);
     }
 
     res.json({
