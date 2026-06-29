@@ -1,9 +1,9 @@
-const { getProvider } = require("./providers/providerFactory");
+const { getMarketDataProvider } = require("./providers/providerFactory");
 
 const getLatestCandles = async (symbol, timeframe) => {
-  const provider = getProvider();
+  const provider = getMarketDataProvider();
 
-  return provider.getLatestCandles(symbol, timeframe);
+  return provider.getCandles(symbol, timeframe);
 };
 
 module.exports = {

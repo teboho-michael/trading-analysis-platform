@@ -1,7 +1,10 @@
 const pool = require("../db/connection");
 const { evaluateZoneLifecycle } = require("../analysis/zoneLifecycleEngine");
+const { createAlertEvent } = require("./alertService");
 
 const updateZoneLifecycle = async (assetId) => {
+  const assetResult = await pool.query("SELECT symbol FROM assets WHERE id=$1", [assetId]);
+  const symbol = assetResult.rows[0]?.symbol || "UNKNOWN";
   // Normalize states written by older lifecycle code where the corrected
   // status will not conflict with a preserved historical row.
   await pool.query(
@@ -108,6 +111,8 @@ const updateZoneLifecycle = async (assetId) => {
 
       if (lifecycle.touched) zonesTouched += 1;
       zonesBroken += 1;
+      if (lifecycle.touched) await createAlertEvent({ assetId, symbol, alertType: "zone_touched", message: `${symbol} ${zone.zone_type} zone touched`, relatedZoneId: zone.id });
+      await createAlertEvent({ assetId, symbol, alertType: "zone_broken", severity: "important", message: `${symbol} ${zone.zone_type} zone broken`, relatedZoneId: zone.id });
       continue;
     }
 
@@ -126,6 +131,8 @@ const updateZoneLifecycle = async (assetId) => {
 
       zonesTouched += 1;
       zonesMitigated += 1;
+      await createAlertEvent({ assetId, symbol, alertType: "zone_touched", message: `${symbol} ${zone.zone_type} zone touched`, relatedZoneId: zone.id });
+      await createAlertEvent({ assetId, symbol, alertType: "zone_mitigated", message: `${symbol} ${zone.zone_type} zone touched and mitigated`, relatedZoneId: zone.id });
     }
   }
 

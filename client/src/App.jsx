@@ -5,6 +5,7 @@ import Watchlist from "./components/Watchlist/Watchlist";
 import { useDashboard } from "./hooks/useDashboard";
 import { useCandles } from "./hooks/useCandles";
 import "./App.css";
+import LowerTabs from "./components/Workspace/LowerTabs";
 
 function App() {
   const [selectedAsset, setSelectedAsset] = useState("BTCUSD");
@@ -58,7 +59,7 @@ function App() {
           <span className="brand-mark" aria-hidden="true" />
           <h1>Trading Analysis Platform</h1>
         </div>
-        <span className="data-source">Backend candles · V1 analysis engine</span>
+        <span className="data-source">Data source: {selectedAssetData?.instrument?.dataSourceLabel || "Unknown"}</span>
       </header>
 
       <main className="trading-workspace">
@@ -81,6 +82,7 @@ function App() {
         />
 
         <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} />
+        <LowerTabs selectedSymbol={selectedAsset} />
       </main>
     </div>
   );

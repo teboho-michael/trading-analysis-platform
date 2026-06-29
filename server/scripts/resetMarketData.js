@@ -2,9 +2,10 @@ const pool = require("../db/connection");
 
 const resetMarketData = async () => {
   if (!process.argv.includes("--confirm")) {
-    throw new Error(
-      "Reset not run. Pass --confirm to delete signals, zones, and candles.",
-    );
+    const counts = await pool.query(`SELECT (SELECT COUNT(*) FROM candles)::int AS candles, (SELECT COUNT(*) FROM zones)::int AS zones, (SELECT COUNT(*) FROM signals)::int AS signals`);
+    console.log("Dry run only. No data deleted.", counts.rows[0], "Pass --confirm to reset market data; assets are always preserved.");
+    await pool.end();
+    return;
   }
 
   const client = await pool.connect();
@@ -12,6 +13,7 @@ const resetMarketData = async () => {
   try {
     await client.query("BEGIN");
 
+    await client.query("DELETE FROM alert_events");
     const signals = await client.query("DELETE FROM signals RETURNING id");
     const zones = await client.query("DELETE FROM zones RETURNING id");
     const candles = await client.query("DELETE FROM candles RETURNING id");

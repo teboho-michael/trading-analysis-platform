@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "reset:market-data": "node scripts/resetMarketData.js"
+    "reset:market-data": "node scripts/resetMarketData.js",
+    "verify:candles": "node scripts/verifyCandles.js"
   },
   "keywords": [],
   "author": "",

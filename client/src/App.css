@@ -58,6 +58,7 @@
   height: calc(100vh - 52px);
   display: grid;
   grid-template-columns: 216px minmax(520px, 1fr) 300px;
+  grid-template-rows: minmax(420px, 1fr) 210px;
   gap: 1px;
   background: var(--border);
   overflow: hidden;
@@ -342,6 +343,25 @@
   overflow-y: auto;
 }
 
+.lower-panel { grid-column: 1 / -1; min-height: 0; overflow: hidden; }
+.lower-tabs { height: 36px; display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--border); }
+.lower-tabs button { padding: 5px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 10px; }
+.lower-tabs button.active { border-bottom-color: var(--accent); color: var(--text); }
+.lower-content { height: calc(100% - 36px); padding: 7px 12px; overflow: auto; color: var(--muted); font-size: 10px; }
+.lower-content table { width: 100%; border-collapse: collapse; }
+.lower-content th, .lower-content td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; white-space: nowrap; }
+.lower-content th { color: var(--subtle); text-transform: uppercase; }
+.system-grid { display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 8px; }
+.system-grid span { padding: 9px; border: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: 5px; }
+.system-grid strong { color: var(--text); }
+.system-grid .wide { grid-column: 1 / -1; }
+.stage-badge { font-weight: 700; }
+.stage-ready, .stage-watch { color: var(--positive) !important; }
+.stage-invalidated { color: var(--negative) !important; }
+.check-item { margin: 4px 0; font-size: 9px; }
+.check-item.passed { color: var(--positive); }
+.check-item.missing { color: var(--warning); }
+
 .analysis-heading {
   align-items: flex-start;
 }
@@ -472,12 +492,14 @@
     min-height: calc(100vh - 52px);
     grid-template-columns: 170px minmax(0, 1fr);
     overflow: visible;
+    grid-template-rows: auto;
   }
 
   .analysis-panel {
     height: auto;
     grid-column: 1 / -1;
   }
+  .lower-panel { grid-column: 1 / -1; height: 240px; }
 
   .chart-section {
     height: 620px;

@@ -6,10 +6,11 @@ const normalizeSymbol = (symbol) =>
     .replace(/[^A-Z0-9]/g, "");
 
 const validateSourceSymbol = (requestedSymbol, sourceSymbol) => {
-  const { providerSymbol } = getSymbolMeta(requestedSymbol);
+  const { providerSymbol, brokerSymbol } = getSymbolMeta(requestedSymbol);
   const expectedSymbols = new Set([
     normalizeSymbol(requestedSymbol),
     normalizeSymbol(providerSymbol),
+    normalizeSymbol(brokerSymbol),
   ]);
 
   if (!sourceSymbol || !expectedSymbols.has(normalizeSymbol(sourceSymbol))) {

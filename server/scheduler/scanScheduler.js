@@ -2,9 +2,10 @@ const cron = require("node-cron");
 const { runMarketScan } = require("./marketScanner");
 
 const startMarketScanner = () => {
-  console.log("Market scanner scheduler initialized");
+  const expression = process.env.SCAN_CRON || "*/5 * * * *";
+  console.log(`Market scanner scheduler initialized (${expression})`);
 
-  cron.schedule("*/5 * * * *", async () => {
+  cron.schedule(expression, async () => {
     console.log("Running scheduled market scan...");
 
     try {

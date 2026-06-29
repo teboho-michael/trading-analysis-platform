@@ -1,22 +1,20 @@
 const mockProvider = require("./mockProvider");
 const twelveDataProvider = require("./twelveDataProvider");
+const mt5BrokerProvider = require("./mt5BrokerProvider");
+const { normalizeProviderMode } = require("../instrumentRegistry");
 
 const getMarketDataProvider = () => {
-  const providerName = process.env.MARKET_PROVIDER || "mock";
+  const providerName = normalizeProviderMode();
 
   if (providerName === "mock") {
     return mockProvider;
   }
 
-  if (
-    providerName === "twelve" ||
-    providerName === "twelvedata" ||
-    providerName === "twelve_data"
-  ) {
+  if (providerName === "twelve") {
     return twelveDataProvider;
   }
-
-  return mockProvider;
+  if (providerName === "broker_mt5") return mt5BrokerProvider;
+  throw new Error(`UNSUPPORTED_MARKET_PROVIDER: ${providerName}`);
 };
 
 module.exports = {

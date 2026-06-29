@@ -10,6 +10,9 @@ const { cleanupOldCandles } = require("../market/candleRetention");
 const { createSignalForZone } = require("../services/signalService");
 const { updateZoneLifecycle } = require("../services/zoneLifecycleService");
 const { getActiveZone, saveDetectedZone } = require("../services/zoneService");
+const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
+const { createAlertEvent, recordSetupStage, recordMarketState } = require("../services/alertService");
+const { beginScan, completeScan, failScan } = require("./scanState");
 
 const getProviderRequestDelay = () => {
   return Number(process.env.PROVIDER_REQUEST_DELAY_MS || 10000);
@@ -107,6 +110,8 @@ const getTrend = async (assetId, timeframe) => {
 };
 
 const updateSignalLifecycle = async (assetId) => {
+  const assetResult = await pool.query("SELECT symbol FROM assets WHERE id=$1", [assetId]);
+  const symbol = assetResult.rows[0]?.symbol || "UNKNOWN";
   const h1Candles = await fetchCandles(assetId, "H1");
 
   if (!h1Candles || h1Candles.length === 0) {
@@ -156,6 +161,10 @@ const updateSignalLifecycle = async (assetId) => {
       );
 
       signalsUpdated += updated.rowCount;
+      if (updated.rowCount) {
+        const eventTypes = { STOP_LOSS_HIT: "stop_loss_hit", TAKE_PROFIT_1_HIT: "tp1_hit", TAKE_PROFIT_2_HIT: "tp2_hit" };
+        await createAlertEvent({ assetId, symbol, alertType: eventTypes[lifecycle.outcomeReason] || "signal_closed", severity: lifecycle.outcomeReason === "STOP_LOSS_HIT" ? "important" : "info", message: `${symbol} ${lifecycle.outcome}`, relatedSignalId: signal.id, relatedZoneId: signal.zone_id });
+      }
     }
   }
 
@@ -342,6 +351,10 @@ const analyzeAsset = async (symbol) => {
     signal,
     risk,
   );
+  const setupQuality = evaluateSetupQuality({ daily, h4, h1, activeZone, zoneProximity, risk, duplicateSignal: !savedSignalResult?.created && Boolean(savedSignalResult?.signal) });
+  await recordSetupStage({ assetId: asset.id, symbol, stage: setupQuality.setupStage, score: setupQuality.qualityScore, zoneId: activeZone?.id });
+  await recordMarketState({ assetId: asset.id, symbol, h1Trend: h1.trend, isNearZone: zoneProximity.isNearZone, zoneId: activeZone?.id });
+  if (savedSignalResult?.created) await createAlertEvent({ assetId: asset.id, symbol, alertType: "signal_created", severity: "important", message: `${symbol} ${savedSignalResult.signal.signal_type} signal created`, relatedSignalId: savedSignalResult.signal.id, relatedZoneId: activeZone?.id });
 
   return {
     symbol,
@@ -360,6 +373,7 @@ const analyzeAsset = async (symbol) => {
     savedSignal: savedSignalResult?.signal || null,
     signalCreated: savedSignalResult?.created || false,
     signalsExpired: savedSignalResult?.expiredCount || 0,
+    ...setupQuality,
   };
 };
 
@@ -414,7 +428,7 @@ const saveScanRun = async ({
   return saved.rows[0];
 };
 
-const runMarketScan = async (scanType = "manual") => {
+const runMarketScanInternal = async (scanType = "manual") => {
   const startedAt = new Date();
 
   const collectionResults = [];
@@ -480,6 +494,12 @@ const runMarketScan = async (scanType = "manual") => {
     collectionResults,
     analysisResults,
   };
+};
+
+const runMarketScan = async (scanType = "manual") => {
+  if (!beginScan()) { const error = new Error("SCAN_IN_PROGRESS: A market scan is already running"); error.statusCode = 409; throw error; }
+  try { const result = await runMarketScanInternal(scanType); completeScan(); return result; }
+  catch (error) { failScan(error); throw error; }
 };
 
 module.exports = {

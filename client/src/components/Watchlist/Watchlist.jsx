@@ -56,8 +56,8 @@ export default function Watchlist({
               <span className="watchlist-identity">
                 <strong>{symbol}</strong>
                 <small>{instrument.name}</small>
-                {instrument.proxySymbol && (
-                  <em>{instrument.proxySymbol} proxy</em>
+                {asset?.instrument?.isProxy && (
+                  <em>{asset.instrument.proxySymbol} proxy</em>
                 )}
               </span>
 
@@ -70,6 +70,7 @@ export default function Watchlist({
                 >
                   {displayBias || "Neutral"}
                 </small>
+                <small className={`stage-badge stage-${String(asset?.setupStage || "wait").toLowerCase()}`}>{asset?.setupStage || "WAIT"} · {asset?.qualityScore ?? 0}</small>
               </span>
             </button>
           );

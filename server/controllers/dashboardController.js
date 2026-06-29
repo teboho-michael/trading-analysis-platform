@@ -3,6 +3,8 @@ const { calculateTrendFromCandles } = require("../analysis/trendEngine");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
 const { updateZoneLifecycle } = require("../services/zoneLifecycleService");
 const { getActiveZone } = require("../services/zoneService");
+const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
+const { getInstrument } = require("../market/instrumentRegistry");
 
 const ZONE_PROXIMITY_PERCENT = 0.003; // 0.3%
 
@@ -132,6 +134,8 @@ const buildAssetAnalysis = async (asset) => {
   const status =
     signal === "BUY SETUP" || signal === "SELL SETUP" ? "Active" : "Monitoring";
 
+  const setupQuality = evaluateSetupQuality({ daily, h4, h1, activeZone, zoneProximity, risk, duplicateSignal: Boolean(latestSignal && latestSignal.zone_id === activeZone?.id) });
+  const instrument = getInstrument(asset.symbol);
   return {
     id: asset.id,
     symbol: asset.symbol,
@@ -148,6 +152,8 @@ const buildAssetAnalysis = async (asset) => {
     signalReason,
     risk,
     latestSignal,
+    ...setupQuality,
+    instrument: { symbol: instrument.symbol, displayName: instrument.displayName, providerSymbol: instrument.providerSymbol, brokerSymbol: instrument.brokerSymbol, dataSourceMode: instrument.dataSourceMode, dataSourceLabel: instrument.dataSourceLabel, isProxy: instrument.isProxy, proxySymbol: instrument.isProxy ? instrument.proxySymbol : null, dataTruthNote: instrument.dataTruthNote },
   };
 };
 

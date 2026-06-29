@@ -12,10 +12,12 @@ const marketRoutes = require("./routes/marketRoutes");
 const { startMarketScanner } = require("./scheduler/scanScheduler");
 const scanRunRoutes = require("./routes/scanRunRoutes");
 const signalMonitorRoutes = require("./routes/signalMonitorRoutes");
+const systemRoutes = require("./routes/systemRoutes");
+const alertRoutes = require("./routes/alertRoutes");
 
 const app = express();
 
-//startMarketScanner();
+if (String(process.env.SCAN_SCHEDULER_ENABLED).toLowerCase() === "true") startMarketScanner();
 
 app.use(cors());
 app.use(express.json());
@@ -29,6 +31,8 @@ app.use("/api/zones", zoneRoutes);
 app.use("/api/market", marketRoutes);
 app.use("/api/scan-runs", scanRunRoutes);
 app.use("/api/signal-monitor", signalMonitorRoutes);
+app.use("/api/alerts", alertRoutes);
+app.use("/api", systemRoutes);
 
 const PORT = process.env.PORT || 5000;
 

@@ -1,3 +1,5 @@
+const { instrumentRegistry } = require("./instrumentRegistry");
+
 const symbolMap = {
   XAUUSD: {
     providerSymbol: "XAU/USD",
@@ -27,7 +29,7 @@ const symbolMap = {
 };
 
 const getProviderSymbol = (internalSymbol) => {
-  const mappedSymbol = symbolMap[internalSymbol];
+  const mappedSymbol = instrumentRegistry[internalSymbol] || symbolMap[internalSymbol];
 
   if (!mappedSymbol) {
     throw new Error(`No provider symbol mapping found for ${internalSymbol}`);
@@ -37,7 +39,9 @@ const getProviderSymbol = (internalSymbol) => {
 };
 
 const getSymbolMeta = (internalSymbol) => {
-  const mappedSymbol = symbolMap[internalSymbol];
+  const legacy = symbolMap[internalSymbol];
+  const instrument = instrumentRegistry[internalSymbol];
+  const mappedSymbol = legacy && instrument ? { ...legacy, ...instrument } : legacy;
 
   if (!mappedSymbol) {
     throw new Error(`No symbol metadata found for ${internalSymbol}`);

@@ -3,6 +3,7 @@ const { calculateEMA } = require("../analysis/emaEngine");
 const { calculateTrendFromCandles } = require("../analysis/trendEngine");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
 const { createSignalForZone } = require("../services/signalService");
+const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
 
 const fetchCandles = async (symbol, timeframe) => {
   const result = await pool.query(
@@ -146,6 +147,8 @@ const getTradeSetup = async (req, res) => {
 
     const entryPrice = h1.lastClose;
     const risk = calculateRiskLevels(symbol, signal, entryPrice, activeZone);
+    const zoneProximity = activeZone ? { isNearZone: entryPrice >= Number(activeZone.zone_low) * 0.997 && entryPrice <= Number(activeZone.zone_high) * 1.003 } : { isNearZone: false };
+    const setupQuality = evaluateSetupQuality({ daily, h4, h1, activeZone, zoneProximity, risk, duplicateSignal: false });
 
     let savedSignal = null;
 
@@ -180,6 +183,7 @@ const getTradeSetup = async (req, res) => {
       signal,
       risk,
       savedSignal,
+      ...setupQuality,
       details: {
         daily,
         h4,

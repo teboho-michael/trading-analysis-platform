@@ -26,6 +26,7 @@ export default function AnalysisPanel({ asset, latestPrice }) {
   }
 
   const instrument = getInstrument(asset.symbol);
+  const metadata = asset.instrument || {};
   const activeZone =
     asset.activeZone?.status === "active" &&
     !asset.activeZone.broken_at &&
@@ -60,12 +61,21 @@ export default function AnalysisPanel({ asset, latestPrice }) {
         <strong className="analysis-price">{formatValue(latestPrice)}</strong>
       </div>
 
-      {instrument.proxyNote && (
+      {metadata.isProxy && (
         <div className="proxy-notice">
-          <strong>{instrument.proxySymbol} proxy</strong>
-          <span>{instrument.proxyNote}</span>
+          <strong>{metadata.proxySymbol} proxy</strong>
+          <span>{metadata.dataTruthNote}</span>
         </div>
       )}
+
+      <section className="analysis-section">
+        <h3>Data truth</h3>
+        <AnalysisRow label="Data source" value={metadata.dataSourceLabel} />
+        <AnalysisRow label="Platform symbol" value={metadata.symbol || asset.symbol} />
+        <AnalysisRow label="Provider symbol" value={metadata.providerSymbol} />
+        <AnalysisRow label="Broker symbol" value={metadata.brokerSymbol} />
+        <p className="risk-note">{metadata.dataTruthNote}</p>
+      </section>
 
       <section className="analysis-section">
         <h3>Market bias</h3>
@@ -102,6 +112,16 @@ export default function AnalysisPanel({ asset, latestPrice }) {
         ) : (
           <p className="analysis-empty">No valid active H4 zone.</p>
         )}
+      </section>
+
+      <section className="analysis-section">
+        <h3>Setup quality</h3>
+        <AnalysisRow label="Stage" value={asset.setupStage || "WAIT"} valueClass={`stage-${String(asset.setupStage || "wait").toLowerCase()}`} />
+        <AnalysisRow label="Quality score" value={`${asset.qualityScore ?? 0}/100`} />
+        <p className="signal-explanation">{asset.nextAction}</p>
+        {(asset.missingConditions || []).slice(0, 3).map((condition) => <p className="check-item missing" key={condition}>○ {condition}</p>)}
+        {(asset.confirmationChecklist || []).filter((item) => item.passed).slice(0, 3).map((item) => <p className="check-item passed" key={item.key}>✓ {item.label}</p>)}
+        {asset.invalidationReason && <p className="risk-note">{asset.invalidationReason}</p>}
       </section>
 
       <section className="analysis-section">
