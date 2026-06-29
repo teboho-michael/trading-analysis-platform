@@ -6,10 +6,15 @@ import { useDashboard } from "./hooks/useDashboard";
 import { useCandles } from "./hooks/useCandles";
 import "./App.css";
 import LowerTabs from "./components/Workspace/LowerTabs";
+import { useLivePrices } from "./hooks/useLivePrices";
+import { useFormingCandles } from "./hooks/useFormingCandles";
+
+const formatTime = (value) => value ? new Date(value).toLocaleTimeString() : "—";
 
 function App() {
   const [selectedAsset, setSelectedAsset] = useState("BTCUSD");
   const [selectedTimeframe, setSelectedTimeframe] = useState("H1");
+  const [liveMode, setLiveMode] = useState(true);
 
   const { dashboard, loading, error, refreshDashboard } = useDashboard();
   const {
@@ -27,7 +32,11 @@ function App() {
   );
   const selectedCandles =
     candles.length === 0 || candles[0]?.symbol === selectedAsset ? candles : [];
-  const latestPrice = selectedCandles.at(-1)?.close;
+  const live = useLivePrices(liveMode);
+  const activeLivePrices = liveMode ? live.prices : {};
+  const selectedLiveQuote = activeLivePrices[selectedAsset];
+  const visibleCandles = useFormingCandles(selectedCandles, selectedLiveQuote, selectedAsset, selectedTimeframe, liveMode);
+  const latestPrice = selectedLiveQuote?.price ?? visibleCandles.at(-1)?.close;
 
   const handleDataCollected = () => {
     refreshDashboard();
@@ -59,7 +68,13 @@ function App() {
           <span className="brand-mark" aria-hidden="true" />
           <h1>Trading Analysis Platform</h1>
         </div>
-        <span className="data-source">Data source: {selectedAssetData?.instrument?.dataSourceLabel || "Unknown"}</span>
+        <div className="live-controls">
+          <span className={`connection-state connection-${live.status}`} title={live.error || "Live provider connection status"}>{live.status}</span>
+          <span>Data: {selectedLiveQuote?.dataSource || selectedAssetData?.instrument?.dataSourceLabel || "Unknown"}</span>
+          <span>Price: {formatTime(live.lastUpdated)}</span>
+          <span>Scan: {formatTime(live.lastScan?.lastSuccessfulScanAt)}</span>
+          <button type="button" className={liveMode ? "active" : ""} onClick={() => setLiveMode((value) => !value)}>Live mode: {liveMode ? "On" : "Off"}</button>
+        </div>
       </header>
 
       <main className="trading-workspace">
@@ -68,10 +83,12 @@ function App() {
           selectedAsset={selectedAsset}
           selectedLatestPrice={latestPrice}
           onSelect={setSelectedAsset}
+          livePrices={activeLivePrices}
+          movements={live.movements}
         />
 
         <TradingChartPanel
-          candles={selectedCandles}
+          candles={visibleCandles}
           candlesLoading={candlesLoading}
           candlesError={candlesError}
           selectedAsset={selectedAsset}
@@ -79,9 +96,11 @@ function App() {
           selectedAssetData={selectedAssetData}
           onTimeframeChange={setSelectedTimeframe}
           onDataCollected={handleDataCollected}
+          liveQuote={selectedLiveQuote}
+          liveStatus={live.status}
         />
 
-        <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} />
+        <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} />
         <LowerTabs selectedSymbol={selectedAsset} />
       </main>
     </div>

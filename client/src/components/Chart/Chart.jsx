@@ -2,7 +2,20 @@ import { useEffect, useRef } from "react";
 import {
   createChart,
   CandlestickSeries,
+  LineSeries,
 } from "lightweight-charts";
+
+const calculateEmaSeries = (candles, period = 200) => {
+  if (candles.length < period) return [];
+  const multiplier = 2 / (period + 1);
+  let ema = candles.slice(0, period).reduce((sum, candle) => sum + Number(candle.close), 0) / period;
+  const values = [{ time: candles[period - 1].chart_time, value: ema }];
+  for (let index = period; index < candles.length; index += 1) {
+    ema = (Number(candles[index].close) - ema) * multiplier + ema;
+    values.push({ time: candles[index].chart_time, value: ema });
+  }
+  return values;
+};
 
 export default function Chart({ candles, activeZone, risk, latestSignal }) {
   const chartContainerRef = useRef(null);
@@ -73,6 +86,15 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
         close: Number(candle.close),
       }))
     );
+
+    const emaSeries = chart.addSeries(LineSeries, {
+      color: "#f4bd62",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      title: "EMA 200 · LIVE PREVIEW",
+    });
+    emaSeries.setData(calculateEmaSeries(candles).slice(-180));
 
     const validActiveZone =
       activeZone?.status === "active" &&

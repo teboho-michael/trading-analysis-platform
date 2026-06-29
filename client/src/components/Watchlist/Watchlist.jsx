@@ -15,6 +15,8 @@ export default function Watchlist({
   selectedAsset,
   selectedLatestPrice,
   onSelect,
+  livePrices,
+  movements,
 }) {
   const assetsBySymbol = new Map(
     dashboard.map((asset) => [asset.symbol, asset]),
@@ -38,10 +40,8 @@ export default function Watchlist({
             asset?.signal && asset.signal !== "WAIT"
               ? asset.signal
               : asset?.h1Trend;
-          const latestPrice =
-            selectedAsset === symbol && selectedLatestPrice !== undefined
-              ? selectedLatestPrice
-              : asset?.latestPrice;
+          const latestPrice = livePrices?.[symbol]?.price ?? (selectedAsset === symbol && selectedLatestPrice !== undefined ? selectedLatestPrice : asset?.latestPrice);
+          const movement = movements?.[symbol] || "flat";
 
           return (
             <button
@@ -62,7 +62,7 @@ export default function Watchlist({
               </span>
 
               <span className="watchlist-market-data">
-                <strong>{formatPrice(latestPrice)}</strong>
+                <strong>{formatPrice(latestPrice)} <span className={`movement movement-${movement}`}>{movement === "up" ? "▲" : movement === "down" ? "▼" : "•"}</span></strong>
                 <small
                   className={`market-bias ${String(displayBias)
                     .toLowerCase()

@@ -3,6 +3,7 @@ const { getProviderSymbol } = require("../symbolMap");
 const { normalizeSymbol } = require("../candleValidator");
 
 const API_URL = "https://api.twelvedata.com/time_series";
+const QUOTE_URL = "https://api.twelvedata.com/quote";
 
 const intervalMap = {
   H1: "1h",
@@ -161,6 +162,27 @@ const getCandles = async (internalSymbol, timeframe) => {
   }
 };
 
+const getLatestPrice = async (internalSymbol) => {
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
+  if (!apiKey) throw new Error("API_KEY_ERROR: TWELVE_DATA_API_KEY is missing in .env");
+  const providerSymbol = getProviderSymbol(internalSymbol);
+  try {
+    const response = await axios.get(QUOTE_URL, { params: { symbol: providerSymbol, apikey: apiKey } });
+    const data = response.data;
+    if (!data || data.status === "error") {
+      throw new Error(classifyProviderError({ statusCode: data?.code, providerMessage: data?.message || "Empty quote response", internalSymbol, providerSymbol, timeframe: "live quote" }));
+    }
+    const price = Number(data.close || data.price);
+    if (!Number.isFinite(price)) throw new Error(`DATA_VALIDATION_ERROR: Twelve Data returned no valid live price for ${internalSymbol} using ${providerSymbol}`);
+    const sourceTimestamp = Number.isFinite(Number(data.timestamp)) ? new Date(Number(data.timestamp) * 1000) : data.datetime ? new Date(data.datetime) : null;
+    return { price, bid: null, ask: null, timestamp: new Date().toISOString(), sourceTimestamp: sourceTimestamp && !Number.isNaN(sourceTimestamp.getTime()) ? sourceTimestamp.toISOString() : null, marketStatus: typeof data.is_market_open === "boolean" ? (data.is_market_open ? "open" : "closed") : "unavailable" };
+  } catch (error) {
+    if (error.response) throw new Error(classifyProviderError({ statusCode: error.response.status, providerMessage: error.response.data?.message || JSON.stringify(error.response.data), internalSymbol, providerSymbol, timeframe: "live quote" }));
+    throw error;
+  }
+};
+
 module.exports = {
   getCandles,
+  getLatestPrice,
 };

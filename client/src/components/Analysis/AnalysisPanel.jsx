@@ -16,7 +16,7 @@ function AnalysisRow({ label, value, valueClass = "" }) {
   );
 }
 
-export default function AnalysisPanel({ asset, latestPrice }) {
+export default function AnalysisPanel({ asset, latestPrice, liveQuote }) {
   if (!asset) {
     return (
       <aside className="analysis-panel panel-shell">
@@ -49,6 +49,10 @@ export default function AnalysisPanel({ asset, latestPrice }) {
         }
       : null;
   const signal = asset.latestSignal?.signal_type || asset.signal || "WAIT";
+  const livePrice = Number(liveQuote?.price);
+  const zoneLow = Number(activeZone?.zone_low);
+  const zoneHigh = Number(activeZone?.zone_high);
+  const liveZoneState = activeZone && Number.isFinite(livePrice) ? (livePrice >= zoneLow && livePrice <= zoneHigh ? "Inside zone" : livePrice >= zoneLow - livePrice * 0.003 && livePrice <= zoneHigh + livePrice * 0.003 ? "Near zone" : "Outside zone") : "Unavailable";
 
   return (
     <aside className="analysis-panel panel-shell" aria-label="Selected asset analysis">
@@ -58,7 +62,7 @@ export default function AnalysisPanel({ asset, latestPrice }) {
           <h2>{asset.symbol}</h2>
           <small>{instrument.name}</small>
         </div>
-        <strong className="analysis-price">{formatValue(latestPrice)}</strong>
+        <strong className="analysis-price">{formatValue(liveQuote?.price ?? latestPrice)}</strong>
       </div>
 
       {metadata.isProxy && (
@@ -82,6 +86,8 @@ export default function AnalysisPanel({ asset, latestPrice }) {
         <AnalysisRow label="D1 bias" value={asset.dailyBias} />
         <AnalysisRow label="H4 bias" value={asset.h4Bias} />
         <AnalysisRow label="H1 trend" value={asset.h1Trend} />
+        <AnalysisRow label="Live zone position" value={liveZoneState} />
+        <p className="risk-note">Live price affects this preview only. Official setup confirmation continues to use closed candles.</p>
       </section>
 
       <section className="analysis-section">

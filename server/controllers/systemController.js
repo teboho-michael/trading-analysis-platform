@@ -1,7 +1,7 @@
 const pool = require("../db/connection");
 const mt5Provider = require("../market/providers/mt5BrokerProvider");
 const { getSafeInstruments, normalizeProviderMode, PROVIDER_LABELS } = require("../market/instrumentRegistry");
-const { getScanState } = require("../scheduler/scanState");
+const { getScanStatus } = require("../services/scanStatusService");
 
 const getInstruments = (req, res) => res.json({ success: true, instruments: getSafeInstruments() });
 
@@ -23,7 +23,8 @@ const health = async (req, res) => {
   try { await pool.query("SELECT 1"); } catch (_error) { database = "unavailable"; }
   const bridge = await bridgeStatus(mode);
   const healthy = database === "available" && bridge.status !== "unavailable";
-  res.status(healthy ? 200 : 503).json({ success: healthy, backend: "available", database, providerMode: mode, providerLabel: PROVIDER_LABELS[mode], bridge, lastScan: getScanState(), timestamp: new Date().toISOString() });
+  const lastScan = database === "available" ? await getScanStatus() : null;
+  res.status(healthy ? 200 : 503).json({ success: healthy, backend: "available", database, providerMode: mode, providerLabel: PROVIDER_LABELS[mode], bridge, lastScan, timestamp: new Date().toISOString() });
 };
 
 module.exports = { getInstruments, providerStatus, health };

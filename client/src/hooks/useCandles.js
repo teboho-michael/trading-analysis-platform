@@ -38,7 +38,7 @@ export const useCandles = (symbol, timeframe) => {
 
     const interval = setInterval(
       () => fetchCandles({ showLoading: false }),
-      10000,
+      120000,
     );
 
     return () => {

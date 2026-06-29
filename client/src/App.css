@@ -54,6 +54,19 @@
   font-size: 11px;
 }
 
+.live-controls { display: flex; align-items: center; gap: 12px; color: var(--subtle); font-size: 10px; }
+.live-controls button { padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; background: #151b27; color: var(--muted); font-size: 10px; }
+.live-controls button.active { border-color: #267b65; color: var(--positive); }
+.connection-state { text-transform: capitalize; }
+.connection-connected { color: var(--positive); }
+.connection-error { color: var(--negative); }
+.connection-cached, .connection-connecting { color: var(--warning); }
+.movement { font-size: 8px; }
+.movement-up { color: var(--positive); }
+.movement-down { color: var(--negative); }
+.movement-flat { color: var(--subtle); }
+.forming-status strong { color: var(--warning); }
+
 .trading-workspace {
   height: calc(100vh - 52px);
   display: grid;
@@ -507,7 +520,8 @@
 }
 
 @media (max-width: 620px) {
-  .data-source {
+  .data-source,
+  .live-controls span:not(.connection-state) {
     display: none;
   }
 

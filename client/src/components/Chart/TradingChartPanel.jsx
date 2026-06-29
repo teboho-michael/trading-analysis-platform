@@ -12,12 +12,15 @@ export default function TradingChartPanel({
   selectedAssetData,
   onTimeframeChange,
   onDataCollected,
+  liveQuote,
+  liveStatus,
 }) {
   const [collecting, setCollecting] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
 
-  const latestPrice = candles.at(-1)?.close;
+  const latestPrice = liveQuote?.price ?? candles.at(-1)?.close;
+  const isForming = candles.at(-1)?.isForming === true;
   const activeZone =
     selectedAssetData?.activeZone?.status === "active" &&
     !selectedAssetData.activeZone.broken_at &&
@@ -78,6 +81,12 @@ export default function TradingChartPanel({
         </span>
         <span>
           Signal <strong>{selectedAssetData?.latestSignal?.signal_type || selectedAssetData?.signal || "None"}</strong>
+        </span>
+        <span className={isForming ? "forming-status" : ""}>
+          Candle <strong>{isForming ? "Forming · unconfirmed" : "Confirmed history"}</strong>
+        </span>
+        <span>
+          Live <strong>{liveStatus}</strong>
         </span>
       </div>
 
