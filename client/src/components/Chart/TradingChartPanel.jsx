@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Chart from "./Chart";
+import TradingViewChart from "./TradingViewChart";
 import ChartToolbar from "./ChartToolbar";
 import { collectMarketData } from "../../services/marketService";
 
@@ -14,6 +15,8 @@ export default function TradingChartPanel({
   onDataCollected,
   liveQuote,
   liveStatus,
+  chartMode,
+  onChartModeChange,
 }) {
   const [collecting, setCollecting] = useState(false);
   const [message, setMessage] = useState("");
@@ -61,13 +64,17 @@ export default function TradingChartPanel({
 
         <div className="toolbar">
           <ChartToolbar
+            chartMode={chartMode}
+            onChartModeChange={onChartModeChange}
             selectedTimeframe={selectedTimeframe}
             onTimeframeChange={onTimeframeChange}
           />
 
-          <button onClick={handleCollectData} disabled={collecting}>
-            {collecting ? "Collecting..." : "Collect Latest Data"}
-          </button>
+          {chartMode === "internal" && (
+            <button onClick={handleCollectData} disabled={collecting}>
+              {collecting ? "Collecting..." : "Collect Latest Data"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -88,6 +95,12 @@ export default function TradingChartPanel({
         <span>
           Live <strong>{liveStatus}</strong>
         </span>
+        <span>
+          Mode <strong>{chartMode === "tradingview" ? "TradingView terminal" : "Internal analysis"}</strong>
+        </span>
+        <span>
+          Strategy <strong>H1 closed candles</strong>
+        </span>
       </div>
 
       {message && (
@@ -96,7 +109,9 @@ export default function TradingChartPanel({
         </p>
       )}
 
-      {candlesLoading ? (
+      {chartMode === "tradingview" ? (
+        <TradingViewChart symbol={selectedAsset} timeframe={selectedTimeframe} />
+      ) : candlesLoading ? (
         <div className="chart-state" role="status">
           Loading {selectedAsset} {selectedTimeframe} candles…
         </div>

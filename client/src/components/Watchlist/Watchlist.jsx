@@ -54,7 +54,7 @@ export default function Watchlist({
               onClick={() => onSelect(symbol)}
             >
               <span className="watchlist-identity">
-                <strong>{symbol}</strong>
+                <strong><i className={`live-dot${livePrices?.[symbol] ? " online" : ""}`} aria-hidden="true" />{symbol}</strong>
                 <small>{instrument.name}</small>
                 {asset?.instrument?.isProxy && (
                   <em>{asset.instrument.proxySymbol} proxy</em>

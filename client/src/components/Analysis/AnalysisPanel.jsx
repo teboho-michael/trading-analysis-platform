@@ -79,6 +79,19 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote }) {
         <AnalysisRow label="Provider symbol" value={metadata.providerSymbol} />
         <AnalysisRow label="Broker symbol" value={metadata.brokerSymbol} />
         <p className="risk-note">{metadata.dataTruthNote}</p>
+        <p className="risk-note">TradingView chart source may differ from analysis provider.</p>
+      </section>
+
+      <section className="analysis-section current-levels">
+        <h3>Current levels</h3>
+        <AnalysisRow label="Latest price" value={formatValue(liveQuote?.price ?? latestPrice)} />
+        <AnalysisRow label="Setup stage" value={asset.setupStage || "WAIT"} />
+        <AnalysisRow label="Zone high" value={formatValue(activeZone?.zone_high)} />
+        <AnalysisRow label="Zone low" value={formatValue(activeZone?.zone_low)} />
+        <AnalysisRow label="Entry" value={formatValue(tradeLevels?.entry)} />
+        <AnalysisRow label="Stop loss" value={formatValue(tradeLevels?.stopLoss)} />
+        <AnalysisRow label="TP1" value={formatValue(tradeLevels?.takeProfit1)} />
+        <AnalysisRow label="TP2" value={formatValue(tradeLevels?.takeProfit2)} />
       </section>
 
       <section className="analysis-section">

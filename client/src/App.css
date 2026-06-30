@@ -70,12 +70,22 @@
 .trading-workspace {
   height: calc(100vh - 52px);
   display: grid;
-  grid-template-columns: 216px minmax(520px, 1fr) 300px;
-  grid-template-rows: minmax(420px, 1fr) 210px;
+  grid-template-columns: 204px minmax(600px, 1fr) 292px;
+  grid-template-rows: minmax(480px, 1fr) 190px;
   gap: 1px;
   background: var(--border);
   overflow: hidden;
 }
+
+.watchlist { grid-column: 1; grid-row: 1; }
+.chart-section { grid-column: 2; grid-row: 1; }
+.analysis-panel { grid-column: 3; grid-row: 1; }
+.lower-panel { grid-column: 1 / -1; grid-row: 2; }
+.trading-workspace.analysis-hidden { grid-template-columns: 204px minmax(600px, 1fr); }
+.trading-workspace.analysis-hidden .chart-section { grid-column: 2; }
+.trading-workspace.history-hidden { grid-template-rows: minmax(520px, 1fr) 37px; }
+.trading-workspace.terminal-focus { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.trading-workspace.terminal-focus .chart-section { grid-column: 1; grid-row: 1; }
 
 .panel-shell {
   min-width: 0;
@@ -167,6 +177,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.watchlist-identity strong { display: flex; align-items: center; gap: 6px; }
+.live-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--subtle); }
+.live-dot.online { background: var(--positive); box-shadow: 0 0 0 2px rgba(45, 212, 167, .12); }
+
 .watchlist-identity small,
 .watchlist-market-data small {
   overflow: hidden;
@@ -232,6 +246,8 @@
   gap: 8px;
 }
 
+.toolbar, .chart-controls { flex-wrap: wrap; justify-content: flex-end; }
+
 .chart-controls label {
   display: flex;
   align-items: center;
@@ -278,6 +294,8 @@
   border-bottom: 1px solid var(--border-soft);
   color: var(--muted);
   font-size: 10px;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .chart-context strong {
@@ -318,6 +336,21 @@
   background: var(--panel-strong);
 }
 
+.tradingview-terminal {
+  min-height: 420px;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 28px;
+  overflow: hidden;
+  background: #0b0f17;
+}
+
+.tradingview-widget-container { min-width: 0; min-height: 0; width: 100%; height: 100%; }
+.tradingview-source-bar { padding: 0 10px; display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--border-soft); color: var(--subtle); font-size: 9px; white-space: nowrap; overflow: hidden; }
+.tradingview-source-bar span:first-child { color: #abc4ff; font-weight: 700; }
+.tradingview-source-bar span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; }
+.tradingview-source-bar button { margin-left: auto; padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; background: #141b27; color: var(--muted); font-size: 9px; white-space: nowrap; }
+
 .chart-state {
   min-height: 360px;
   display: flex;
@@ -356,10 +389,12 @@
   overflow-y: auto;
 }
 
-.lower-panel { grid-column: 1 / -1; min-height: 0; overflow: hidden; }
+.lower-panel { min-height: 0; overflow: hidden; }
 .lower-tabs { height: 36px; display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--border); }
 .lower-tabs button { padding: 5px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 10px; }
 .lower-tabs button.active { border-bottom-color: var(--accent); color: var(--text); }
+.lower-tabs .lower-collapse { margin-left: auto; color: #abc4ff; }
+.lower-panel.collapsed .lower-tabs { border-bottom: 0; }
 .lower-content { height: calc(100% - 36px); padding: 7px 12px; overflow: auto; color: var(--muted); font-size: 10px; }
 .lower-content table { width: 100%; border-collapse: collapse; }
 .lower-content th, .lower-content td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; white-space: nowrap; }
@@ -420,6 +455,8 @@
   padding: 13px 14px;
   border-bottom: 1px solid var(--border-soft);
 }
+
+.current-levels { background: #0b111b; }
 
 .analysis-section h3 {
   margin: 0 0 8px;
@@ -495,8 +532,9 @@
 
 @media (max-width: 1100px) {
   .trading-workspace {
-    grid-template-columns: 190px minmax(450px, 1fr) 270px;
+    grid-template-columns: 180px minmax(480px, 1fr) 260px;
   }
+  .trading-workspace.analysis-hidden { grid-template-columns: 180px minmax(480px, 1fr); }
 }
 
 @media (max-width: 860px) {

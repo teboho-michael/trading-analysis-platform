@@ -10,11 +10,21 @@ import { useLivePrices } from "./hooks/useLivePrices";
 import { useFormingCandles } from "./hooks/useFormingCandles";
 
 const formatTime = (value) => value ? new Date(value).toLocaleTimeString() : "—";
+const TRACKED_ASSETS = new Set(["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"]);
+const CHART_TIMEFRAMES = new Set(["M1", "M5", "M15", "H1", "H4", "D1"]);
+const initialParam = (name, allowed, fallback) => {
+  const value = new URLSearchParams(window.location.search).get(name);
+  return allowed.has(value) ? value : fallback;
+};
 
 function App() {
-  const [selectedAsset, setSelectedAsset] = useState("BTCUSD");
-  const [selectedTimeframe, setSelectedTimeframe] = useState("H1");
+  const [selectedAsset, setSelectedAsset] = useState(() => initialParam("symbol", TRACKED_ASSETS, "BTCUSD"));
+  const [selectedTimeframe, setSelectedTimeframe] = useState(() => initialParam("timeframe", CHART_TIMEFRAMES, "H1"));
   const [liveMode, setLiveMode] = useState(true);
+  const [chartMode, setChartMode] = useState("tradingview");
+  const [analysisVisible, setAnalysisVisible] = useState(true);
+  const [historyVisible, setHistoryVisible] = useState(true);
+  const [focusMode, setFocusMode] = useState(false);
 
   const { dashboard, loading, error, refreshDashboard } = useDashboard();
   const {
@@ -74,18 +84,21 @@ function App() {
           <span>Price: {formatTime(live.lastUpdated)}</span>
           <span>Scan: {formatTime(live.lastScan?.lastSuccessfulScanAt)}</span>
           <button type="button" className={liveMode ? "active" : ""} onClick={() => setLiveMode((value) => !value)}>Live mode: {liveMode ? "On" : "Off"}</button>
+          <button type="button" onClick={() => setAnalysisVisible((value) => !value)}>{analysisVisible ? "Hide analysis" : "Show analysis"}</button>
+          <button type="button" onClick={() => setHistoryVisible((value) => !value)}>{historyVisible ? "Hide history" : "Show history"}</button>
+          <button type="button" className={focusMode ? "active" : ""} onClick={() => setFocusMode((value) => !value)}>{focusMode ? "Exit focus" : "Focus chart"}</button>
         </div>
       </header>
 
-      <main className="trading-workspace">
-        <Watchlist
+      <main className={`trading-workspace${!analysisVisible ? " analysis-hidden" : ""}${!historyVisible ? " history-hidden" : ""}${focusMode ? " terminal-focus" : ""}`}>
+        {!focusMode && <Watchlist
           dashboard={dashboard}
           selectedAsset={selectedAsset}
           selectedLatestPrice={latestPrice}
           onSelect={setSelectedAsset}
           livePrices={activeLivePrices}
           movements={live.movements}
-        />
+        />}
 
         <TradingChartPanel
           candles={visibleCandles}
@@ -98,10 +111,12 @@ function App() {
           onDataCollected={handleDataCollected}
           liveQuote={selectedLiveQuote}
           liveStatus={live.status}
+          chartMode={chartMode}
+          onChartModeChange={setChartMode}
         />
 
-        <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} />
-        <LowerTabs selectedSymbol={selectedAsset} />
+        {!focusMode && analysisVisible && <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} />}
+        {!focusMode && <LowerTabs selectedSymbol={selectedAsset} collapsed={!historyVisible} onToggleCollapsed={() => setHistoryVisible((value) => !value)} />}
       </main>
     </div>
   );
