@@ -389,6 +389,51 @@
   overflow-y: auto;
 }
 
+.decision-panel { padding-bottom: 8px; }
+.decision-market { min-height: 78px; padding: 13px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); background: #0c121c; }
+.decision-market h2 { margin: 3px 0 1px; font-size: 17px; }
+.decision-market small { color: var(--muted); font-size: 9px; }
+.decision-market-price { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.decision-market-price span { color: var(--subtle); font-size: 8px; text-transform: uppercase; }
+.decision-market-price strong { color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; }
+.decision-card { margin: 8px 9px 0; padding: 11px 12px; border: 1px solid var(--border-soft); border-radius: 5px; background: #0c111a; }
+.decision-card h3 { margin: 0 0 9px; color: var(--subtle); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.decision-card-heading { display: flex; align-items: center; justify-content: space-between; }
+.decision-card-heading h3 { margin-bottom: 0; }
+.setup-card { border-color: #344158; background: linear-gradient(145deg, #101827, #0c121c); }
+.setup-card.direction-buy { border-color: #216b5a; }
+.setup-card.direction-sell { border-color: #74333d; }
+.direction-badge { min-width: 48px; padding: 4px 7px; border: 1px solid #725b2d; border-radius: 3px; color: var(--warning); font-size: 9px; font-weight: 850; text-align: center; letter-spacing: .08em; }
+.direction-badge.direction-buy { border-color: #267b65; background: rgba(45, 212, 167, .08); color: var(--positive); }
+.direction-badge.direction-sell { border-color: #793640; background: rgba(240, 91, 105, .08); color: var(--negative); }
+.setup-summary { margin-top: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.setup-summary > span { min-width: 0; padding: 7px; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border-soft); border-radius: 3px; background: #0a0f17; }
+.setup-summary small, .next-action small { color: var(--subtle); font-size: 8px; font-weight: 750; text-transform: uppercase; }
+.setup-summary strong { overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.next-action { margin-top: 8px; padding: 9px; display: flex; flex-direction: column; gap: 4px; border-left: 2px solid var(--accent); background: #0a101a; }
+.next-action strong { color: #dce5f2; font-size: 10px; font-weight: 600; line-height: 1.45; }
+.decision-warning { margin: 7px 0 0; color: var(--negative); font-size: 9px; }
+.levels-card { background: #0b121c; }
+.level-grid .analysis-row { min-height: 27px; }
+.level-grid .analysis-row strong { font-size: 11px; }
+.zone-level { color: #abc4ff !important; }
+.entry-level { color: #72a0ff !important; }
+.stop-level { color: var(--negative) !important; }
+.target-level { color: var(--positive) !important; }
+.decision-empty { margin: 7px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.level-note { margin: 7px 0 0; color: var(--subtle); font-size: 8px; }
+.bias-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.bias-strip span { padding: 6px; display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--border-soft); color: var(--subtle); font-size: 8px; }
+.bias-strip strong { color: var(--text); font-size: 9px; }
+.decision-checklist { margin-top: 7px; }
+.decision-checklist p { margin: 0; padding: 4px 0; display: flex; gap: 6px; border-bottom: 1px solid #151b25; color: var(--muted); font-size: 9px; line-height: 1.35; }
+.decision-checklist p:last-child { border-bottom: 0; }
+.decision-checklist p.passed span { color: var(--positive); }
+.decision-checklist p.missing span { color: var(--negative); }
+.zone-card .analysis-row, .data-truth-card .analysis-row { min-height: 24px; }
+.data-truth-card { background: transparent; opacity: .88; }
+.proxy-line { margin: 7px 0 0; color: var(--warning); font-size: 8px; }
+
 .lower-panel { min-height: 0; overflow: hidden; }
 .lower-tabs { height: 36px; display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--border); }
 .lower-tabs button { padding: 5px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 10px; }
