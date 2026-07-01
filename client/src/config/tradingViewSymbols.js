@@ -22,17 +22,17 @@ export const TRADING_VIEW_SYMBOLS = {
   },
   US500: {
     platformSymbol: "US500",
-    tradingViewSymbol: "SP:SPX",
-    fallbackTradingViewSymbol: "AMEX:SPY",
-    displayName: "S&P 500",
-    note: "Primary chart is the SPX index; SPY is the fallback proxy.",
+    tradingViewSymbol: "OANDA:SPX500USD",
+    fallbackTradingViewSymbol: "SP:SPX",
+    displayName: "US 500 Index",
+    note: "Direct index/CFD-style charting; analysis uses direct index-scale data when available.",
   },
   US100: {
     platformSymbol: "US100",
-    tradingViewSymbol: "NASDAQ:NDX",
-    fallbackTradingViewSymbol: "NASDAQ:QQQ",
-    displayName: "Nasdaq 100",
-    note: "Primary chart is the NDX index; QQQ is the fallback proxy.",
+    tradingViewSymbol: "OANDA:NAS100USD",
+    fallbackTradingViewSymbol: "NASDAQ:NDX",
+    displayName: "US Tech 100 Index",
+    note: "Direct index/CFD-style charting; analysis uses direct index-scale data when available.",
   },
 };
 

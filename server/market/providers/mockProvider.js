@@ -15,9 +15,9 @@ const getTimeframeMinutes = (timeframe) => {
 const getBasePrice = (symbol) => {
   switch (symbol) {
     case "US500":
-      return 550;
+      return 7000;
     case "US100":
-      return 500;
+      return 30000;
     case "XAUUSD":
       return 3350;
     case "BTCUSD":

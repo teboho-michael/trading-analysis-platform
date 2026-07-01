@@ -1,4 +1,4 @@
-const { getAssetSpec } = require("../market/assetSpecs");
+const { getInstrument } = require("../market/instrumentRegistry");
 
 const STOP_BUFFER_PERCENT = 0.001; // 0.1%
 
@@ -10,12 +10,17 @@ const getRiskPercent = () => {
   return Number(process.env.RISK_PERCENT || 1);
 };
 
-const roundPrice = (price, decimals) => {
-  return Number(Number(price).toFixed(decimals));
+const roundPrice = (price, instrument) => {
+  const tickSize = Number(instrument.tickSize);
+  const normalizedPrice = tickSize > 0
+    ? Math.round(Number(price) / tickSize) * tickSize
+    : Number(price);
+
+  return Number(normalizedPrice.toFixed(instrument.priceDecimals));
 };
 
 const calculatePositionSize = (symbol, riskAmount) => {
-  const spec = getAssetSpec(symbol);
+  const instrument = getInstrument(symbol);
 
   const accountBalance = getAccountBalance();
   const riskPercent = getRiskPercent();
@@ -36,8 +41,8 @@ const calculatePositionSize = (symbol, riskAmount) => {
 
   let positionSizeLots = null;
 
-  if (spec.contractSize && spec.contractSize > 1) {
-    positionSizeLots = positionSizeUnits / spec.contractSize;
+  if (instrument.contractSize && instrument.contractSize > 1) {
+    positionSizeLots = positionSizeUnits / instrument.contractSize;
   }
 
   return {
@@ -47,18 +52,24 @@ const calculatePositionSize = (symbol, riskAmount) => {
     positionSizeUnits: Number(positionSizeUnits.toFixed(6)),
     positionSizeLots:
       positionSizeLots !== null ? Number(positionSizeLots.toFixed(6)) : null,
-    positionSizeNote: spec.note,
+    positionSizeNote: instrument.note,
     assetSpec: {
-      pipSize: spec.pipSize,
-      contractSize: spec.contractSize,
-      sizingMode: spec.sizingMode,
+      priceDecimals: instrument.priceDecimals,
+      pipSize: instrument.pipSize,
+      tickSize: instrument.tickSize,
+      contractSize: instrument.contractSize,
+      sizingMode: instrument.sizingMode,
+      priceScaleMode: instrument.priceScaleMode,
+      assetClass: instrument.assetClass,
+      brokerSymbolFuture: instrument.brokerSymbolFuture,
+      brokerSymbol: instrument.brokerSymbol,
+      priceRange: instrument.priceRange,
     },
   };
 };
 
 const calculateBuyRisk = (symbol, entryPrice, zone) => {
-  const spec = getAssetSpec(symbol);
-  const decimals = spec.priceDecimals;
+  const instrument = getInstrument(symbol);
 
   const zoneLow = Number(zone.zone_low);
   const stopBuffer = entryPrice * STOP_BUFFER_PERCENT;
@@ -76,11 +87,11 @@ const calculateBuyRisk = (symbol, entryPrice, zone) => {
   const position = calculatePositionSize(symbol, riskAmount);
 
   return {
-    entryPrice: roundPrice(entryPrice, decimals),
-    stopLoss: roundPrice(stopLoss, decimals),
-    takeProfit1: roundPrice(takeProfit1, decimals),
-    takeProfit2: roundPrice(takeProfit2, decimals),
-    riskAmount: roundPrice(riskAmount, decimals),
+    entryPrice: roundPrice(entryPrice, instrument),
+    stopLoss: roundPrice(stopLoss, instrument),
+    takeProfit1: roundPrice(takeProfit1, instrument),
+    takeProfit2: roundPrice(takeProfit2, instrument),
+    riskAmount: roundPrice(riskAmount, instrument),
     riskReward1: "1:2",
     riskReward2: "1:3",
     stopBasis: "Below demand zone low",
@@ -89,8 +100,7 @@ const calculateBuyRisk = (symbol, entryPrice, zone) => {
 };
 
 const calculateSellRisk = (symbol, entryPrice, zone) => {
-  const spec = getAssetSpec(symbol);
-  const decimals = spec.priceDecimals;
+  const instrument = getInstrument(symbol);
 
   const zoneHigh = Number(zone.zone_high);
   const stopBuffer = entryPrice * STOP_BUFFER_PERCENT;
@@ -108,11 +118,11 @@ const calculateSellRisk = (symbol, entryPrice, zone) => {
   const position = calculatePositionSize(symbol, riskAmount);
 
   return {
-    entryPrice: roundPrice(entryPrice, decimals),
-    stopLoss: roundPrice(stopLoss, decimals),
-    takeProfit1: roundPrice(takeProfit1, decimals),
-    takeProfit2: roundPrice(takeProfit2, decimals),
-    riskAmount: roundPrice(riskAmount, decimals),
+    entryPrice: roundPrice(entryPrice, instrument),
+    stopLoss: roundPrice(stopLoss, instrument),
+    takeProfit1: roundPrice(takeProfit1, instrument),
+    takeProfit2: roundPrice(takeProfit2, instrument),
+    riskAmount: roundPrice(riskAmount, instrument),
     riskReward1: "1:2",
     riskReward2: "1:3",
     stopBasis: "Above supply zone high",

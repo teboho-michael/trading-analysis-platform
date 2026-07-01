@@ -17,16 +17,10 @@ export const INSTRUMENTS = {
     name: "US Dollar / Japanese Yen",
   },
   US500: {
-    name: "S&P 500",
-    proxySymbol: "SPY",
-    proxyNote:
-      "The current provider mapping uses SPY ETF candles. Actual S&P 500 cash-index data is not available in this feed.",
+    name: "US 500 Index",
   },
   US100: {
-    name: "Nasdaq 100",
-    proxySymbol: "QQQ",
-    proxyNote:
-      "The current provider mapping uses QQQ ETF candles. Actual Nasdaq 100 cash-index data is not available in this feed.",
+    name: "US Tech 100 Index",
   },
 };
 

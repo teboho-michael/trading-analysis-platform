@@ -13,7 +13,7 @@ const normalizeQuote = (symbol, raw) => {
   const rawPrice = Number(raw.price);
   const price = Number.isFinite(rawPrice) ? rawPrice : Number.isFinite(bid) ? bid : Number.isFinite(ask) ? ask : NaN;
   if (!Number.isFinite(price)) throw new Error(`LIVE_PRICE_ERROR: Provider returned no valid price for ${symbol}`);
-  return { symbol, providerSymbol: instrument.dataSourceMode === "broker_mt5" ? instrument.brokerSymbol : instrument.providerSymbol, dataSource: instrument.dataSourceLabel, price, bid: Number.isFinite(bid) ? bid : null, ask: Number.isFinite(ask) ? ask : null, timestamp: raw.timestamp || new Date().toISOString(), sourceTimestamp: raw.sourceTimestamp || raw.timestamp || null, marketStatus: raw.marketStatus || "unavailable", isProxy: instrument.isProxy, dataTruthNote: instrument.dataTruthNote };
+  return { symbol, providerSymbol: instrument.providerSymbol, analysisProviderSymbol: instrument.activeAnalysisSymbol, tradingViewSymbol: instrument.tradingViewSymbol, dataSource: instrument.dataSourceLabel, priceScaleMode: instrument.priceScaleMode, sourceMode: instrument.sourceMode, dataModeLabel: instrument.dataModeLabel, syncStatus: instrument.syncStatus, price, bid: Number.isFinite(bid) ? bid : null, ask: Number.isFinite(ask) ? ask : null, timestamp: raw.timestamp || new Date().toISOString(), sourceTimestamp: raw.sourceTimestamp || raw.timestamp || null, marketStatus: raw.marketStatus || "unavailable", isProxy: instrument.isProxy, dataTruthNote: instrument.dataTruthNote };
 };
 
 const fetchQuotes = async (symbols) => {

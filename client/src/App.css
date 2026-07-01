@@ -433,6 +433,9 @@
 .zone-card .analysis-row, .data-truth-card .analysis-row { min-height: 24px; }
 .data-truth-card { background: transparent; opacity: .88; }
 .proxy-line { margin: 7px 0 0; color: var(--warning); font-size: 8px; }
+.alignment-line { margin: 7px 0 0; color: var(--positive); font-size: 8px; line-height: 1.45; }
+.alignment-proxy { color: var(--warning); }
+.alignment-broker-future { color: #abc4ff; }
 
 .lower-panel { min-height: 0; overflow: hidden; }
 .lower-tabs { height: 36px; display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--border); }

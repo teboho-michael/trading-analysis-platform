@@ -4,6 +4,7 @@ const resetMarketData = async () => {
   if (!process.argv.includes("--confirm")) {
     const counts = await pool.query(`SELECT (SELECT COUNT(*) FROM candles)::int AS candles, (SELECT COUNT(*) FROM zones)::int AS zones, (SELECT COUNT(*) FROM signals)::int AS signals`);
     console.log("Dry run only. No data deleted.", counts.rows[0], "Pass --confirm to reset market data; assets are always preserved.");
+    console.log("Use npm run reset:market-data -- --confirm when changing US500/US100 between proxy-scale ETF data and direct index-scale data, then recollect candles for the active mapping.");
     await pool.end();
     return;
   }
@@ -23,6 +24,7 @@ const resetMarketData = async () => {
     console.log(
       `Market data reset complete: ${signals.rowCount} signals, ${zones.rowCount} zones, ${candles.rowCount} candles deleted. Assets and scan history were preserved.`,
     );
+    console.log("Recollect market data before trusting watchlist prices, setup levels, zones, or validation reports for the active source mapping.");
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

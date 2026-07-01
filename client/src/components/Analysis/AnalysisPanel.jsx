@@ -35,6 +35,16 @@ const getZoneStatus = (zone) => {
   return zone.status || "Active";
 };
 
+const getAlignmentMessage = (metadata) => {
+  if (metadata.priceScaleMode === "proxy") {
+    return "Proxy mode active. Levels are based on proxy data.";
+  }
+  if (metadata.syncStatus === "Different source / approximate") {
+    return "Chart and analysis use different instruments. Treat levels as approximate.";
+  }
+  return "Chart and analysis are aligned by direct symbol.";
+};
+
 export default function AnalysisPanel({ asset, latestPrice, liveQuote }) {
   if (!asset) return <aside className="analysis-panel panel-shell"><p className="analysis-empty">Selected instrument analysis is unavailable.</p></aside>;
 
@@ -122,11 +132,14 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote }) {
       </section>
 
       <section className="decision-card data-truth-card">
-        <h3>Data Truth</h3>
-        <AnalysisRow label="Chart mode" value="TradingView" />
-        <AnalysisRow label="Analysis provider" value={metadata.dataSourceLabel || "Twelve Data"} />
+        <h3>Data / Source Alignment</h3>
+        <AnalysisRow label="Chart symbol" value={metadata.tradingViewSymbol || "TradingView"} />
+        <AnalysisRow label="Analysis symbol" value={metadata.analysisProviderSymbol || metadata.providerSymbol || "—"} />
+        <AnalysisRow label="Data mode" value={metadata.dataModeLabel || "Direct market data"} />
+        <AnalysisRow label="Sync status" value={metadata.syncStatus || "Aligned"} />
+        <AnalysisRow label="Provider" value={metadata.dataSourceLabel || "Twelve Data"} />
         <AnalysisRow label="Broker mapping" value="Pending MT5/VPS" />
-        {metadata.isProxy && <p className="proxy-line">{metadata.proxySymbol} proxy is used for analysis.</p>}
+        <p className={`alignment-line alignment-${classToken(metadata.priceScaleMode || "direct")}`}>{getAlignmentMessage(metadata)}</p>
       </section>
     </aside>
   );
