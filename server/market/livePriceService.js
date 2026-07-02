@@ -1,6 +1,7 @@
 const { getMarketDataProvider } = require("./providers/providerFactory");
 const { getInstrument, instrumentRegistry, normalizeProviderMode } = require("./instrumentRegistry");
 const { getScanState } = require("../scheduler/scanState");
+const { ProviderError, isRateLimitError, serializeProviderError } = require("./providers/providerError");
 
 const cache = new Map();
 let inFlight = null;
@@ -16,6 +17,24 @@ const normalizeQuote = (symbol, raw) => {
   return { symbol, providerSymbol: instrument.providerSymbol, analysisProviderSymbol: instrument.activeAnalysisSymbol, tradingViewSymbol: instrument.tradingViewSymbol, dataSource: instrument.dataSourceLabel, priceScaleMode: instrument.priceScaleMode, sourceMode: instrument.sourceMode, dataModeLabel: instrument.dataModeLabel, syncStatus: instrument.syncStatus, price, bid: Number.isFinite(bid) ? bid : null, ask: Number.isFinite(ask) ? ask : null, timestamp: raw.timestamp || new Date().toISOString(), sourceTimestamp: raw.sourceTimestamp || raw.timestamp || null, marketStatus: raw.marketStatus || "unavailable", isProxy: instrument.isProxy, dataTruthNote: instrument.dataTruthNote };
 };
 
+const rateLimitedQuote = (symbol, cachedQuote) => {
+  const instrument = getInstrument(symbol);
+  return {
+    ...(cachedQuote || {}),
+    symbol,
+    provider: "Twelve Data",
+    providerSymbol: instrument.providerSymbol,
+    analysisProviderSymbol: instrument.activeAnalysisSymbol,
+    tradingViewSymbol: instrument.tradingViewSymbol,
+    dataSource: instrument.dataSourceLabel,
+    price: cachedQuote?.price ?? null,
+    bid: cachedQuote?.bid ?? null,
+    ask: cachedQuote?.ask ?? null,
+    status: "rate_limited",
+    message: "Rate limited",
+  };
+};
+
 const fetchQuotes = async (symbols) => {
   const mode = normalizeProviderMode();
   if (mode === "mock") throw new Error("MOCK_LIVE_PRICE_UNAVAILABLE: Mock mode does not provide real live prices");
@@ -24,7 +43,14 @@ const fetchQuotes = async (symbols) => {
   const quotes = [], errors = [];
   settled.forEach((result, index) => {
     if (result.status === "fulfilled") { cache.set(`${mode}:${symbols[index]}`, { quote: result.value, fetchedAt: Date.now() }); quotes.push(result.value); }
-    else errors.push({ symbol: symbols[index], error: result.reason.message });
+    else if (isRateLimitError(result.reason)) {
+      const symbol = symbols[index];
+      const cachedQuote = cache.get(`${mode}:${symbol}`)?.quote;
+      quotes.push(rateLimitedQuote(symbol, cachedQuote));
+      errors.push(serializeProviderError(result.reason));
+    } else if (result.reason instanceof ProviderError) {
+      errors.push(serializeProviderError(result.reason));
+    } else errors.push({ symbol: symbols[index], error: result.reason.message });
   });
   if (!quotes.length) { const error = new Error(errors.map((item) => `${item.symbol}: ${item.error}`).join("; ")); error.details = errors; throw error; }
   return { quotes, errors };

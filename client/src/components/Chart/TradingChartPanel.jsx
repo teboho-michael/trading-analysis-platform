@@ -43,8 +43,11 @@ export default function TradingChartPanel({
 
       onDataCollected();
     } catch (error) {
+      const providerRateLimited = error.response?.data?.status === "rate_limited";
       setMessage(
-        error.response?.data?.error ||
+        providerRateLimited
+          ? "Provider rate limit reached. Wait and retry collection."
+          : error.response?.data?.error ||
           error.response?.data?.message ||
           "Failed to collect market data.",
       );
@@ -106,6 +109,12 @@ export default function TradingChartPanel({
       {message && (
         <p className={`status-message ${messageType}`} role="status">
           {message}
+        </p>
+      )}
+
+      {liveQuote?.status === "rate_limited" && !message && (
+        <p className="status-message error" role="status">
+          Insufficient data — provider rate limited.
         </p>
       )}
 

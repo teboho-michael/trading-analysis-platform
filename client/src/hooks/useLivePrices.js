@@ -20,11 +20,12 @@ export const useLivePrices = (enabled) => {
       const nextMovement = {};
       for (const [symbol, quote] of Object.entries(next)) {
         const previous = pricesRef.current[symbol]?.price;
-        nextMovement[symbol] = previous === undefined || quote.price === previous ? "flat" : quote.price > previous ? "up" : "down";
+        nextMovement[symbol] = previous == null || quote.price == null || quote.price === previous ? "flat" : quote.price > previous ? "up" : "down";
       }
       const quoteTimes = result.prices.map((quote) => new Date(quote.timestamp).getTime()).filter(Number.isFinite);
       pricesRef.current = next;
-      setPrices(next); setMovements(nextMovement); setLastUpdated(quoteTimes.length ? new Date(Math.max(...quoteTimes)).toISOString() : null); setLastScan(result.lastScan); setStatus(result.cacheStatus === "stale_during_scan" ? "cached" : "connected"); setError(result.errors?.length ? result.errors.map((item) => `${item.symbol}: ${item.error}`).join("; ") : "");
+      const rateLimited = result.prices.some((quote) => quote.status === "rate_limited");
+      setPrices(next); setMovements(nextMovement); setLastUpdated(quoteTimes.length ? new Date(Math.max(...quoteTimes)).toISOString() : null); setLastScan(result.lastScan); setStatus(rateLimited ? "rate_limited" : result.cacheStatus === "stale_during_scan" ? "cached" : "connected"); setError(rateLimited ? "Provider rate limit reached. Wait and retry collection." : result.errors?.length ? result.errors.map((item) => `${item.symbol}: ${item.error || item.message}`).join("; ") : "");
     } catch (requestError) {
       setStatus("error");
       setError(requestError.response?.data?.error || requestError.message || "Live prices unavailable");
