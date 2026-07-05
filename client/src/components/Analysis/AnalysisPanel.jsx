@@ -47,7 +47,7 @@ const getAlignmentMessage = (metadata) => {
   return "Chart and analysis are aligned by direct symbol.";
 };
 
-export default function AnalysisPanel({ asset, latestPrice, liveQuote, onJournalCreated }) {
+export default function AnalysisPanel({ asset, latestPrice, liveQuote, selectedTimeframe = "H1", onJournalCreated }) {
   const [journalState, setJournalState] = useState({ busy: false, message: "", error: false });
   if (!asset) return <aside className="analysis-panel panel-shell"><p className="analysis-empty">Selected instrument analysis is unavailable.</p></aside>;
 
@@ -74,23 +74,35 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote, onJournal
   const zoneAlignment = checklist.find((item) => item.key === "activeZone");
   const proximity = checklist.find((item) => item.key === "proximity");
   const canJournal = Boolean(levels?.entry && levels?.stopLoss && levels?.takeProfit1 && ["BUY", "SELL"].includes(direction));
+  const insufficientData = [asset.dailyBias, asset.h4Bias, asset.h1Trend].some((value) => String(value).toLowerCase().includes("insufficient"));
+  const providerLimited = !canJournal && insufficientData && ["SPX", "NDX"].includes(metadata.analysisProviderSymbol || metadata.providerSymbol);
+  const entryType = canJournal ? "setup" : providerLimited ? "provider_limited" : (stage === "WATCH" || activeZone) ? "watch" : "observation";
+  const actionLabel = entryType === "setup" ? "Add Setup to Journal" : entryType === "provider_limited" ? "Track Provider Limitation" : entryType === "watch" ? "Track Watch" : "Track Observation";
+  const failureMessage = entryType === "setup" ? "Could not add setup to journal" : entryType === "watch" ? "Could not track watch entry" : "Could not track observation";
+  const successMessage = entryType === "setup" ? "Setup added to journal." : entryType === "watch" ? "Watch entry tracked." : entryType === "provider_limited" ? "Provider limitation tracked." : "Observation tracked.";
   const addToJournal = async () => {
     setJournalState({ busy: true, message: "", error: false });
     try {
       const response = asset.latestSignal?.id
-        ? await api.post(`/journal/from-signal/${asset.latestSignal.id}`)
+        && entryType === "setup" ? await api.post(`/journal/from-signal/${asset.latestSignal.id}`)
         : await api.post("/journal", {
-          symbol: asset.symbol, strategy_name: "core-confluence", strategy_version: "v3.4", timeframe: activeZone?.timeframe || "H4", direction,
-          setup_stage: stage, quality_score: asset.qualityScore, status: "pending", outcome: "pending", d1_bias: asset.dailyBias, h4_bias: asset.h4Bias,
+          entry_type: entryType, symbol: asset.symbol, strategy_name: entryType === "setup" ? "core-confluence" : undefined, strategy_version: entryType === "setup" ? "v3.5" : undefined, timeframe: selectedTimeframe, direction: entryType === "setup" ? direction : undefined,
+          setup_stage: stage || "WAIT", quality_score: asset.qualityScore, status: entryType === "watch" ? "watching" : "pending", outcome: entryType === "watch" ? "watching" : "pending", d1_bias: asset.dailyBias, h4_bias: asset.h4Bias,
           h1_trend: asset.h1Trend, ema_confirmation: Boolean(emaConfirmation?.passed), zone_type: activeZone?.zone_type, zone_timeframe: activeZone?.timeframe,
           zone_high: activeZone?.zone_high, zone_low: activeZone?.zone_low, zone_status: activeZone?.status, distance_from_zone: asset.zoneProximity?.distanceFromZone,
-          entry: levels.entry, stop_loss: levels.stopLoss, tp1: levels.takeProfit1, tp2: levels.takeProfit2,
+          entry: levels?.entry, stop_loss: levels?.stopLoss, tp1: levels?.takeProfit1, tp2: levels?.takeProfit2,
           data_source: metadata.dataSourceLabel, provider_symbol: metadata.analysisProviderSymbol || metadata.providerSymbol,
           tradingview_symbol: metadata.tradingViewSymbol, price_scale_mode: metadata.priceScaleMode, source_mode: metadata.sourceMode,
+          reviewer_notes: entryType === "setup" ? undefined : "Tracked from right panel observation",
+          notes: entryType === "provider_limited" ? `Analysis unavailable for ${asset.symbol}: current provider access does not supply ${metadata.analysisProviderSymbol || metadata.providerSymbol}.` : nextAction,
+          dedupe_key: `${asset.symbol}:${entryType}:${stage}:${asset.qualityScore ?? 0}:${asset.dailyBias || "none"}:${asset.h4Bias || "none"}:${asset.h1Trend || "none"}:${new Date().toISOString().slice(0, 10)}`,
         });
-      setJournalState({ busy: false, message: response.data.created === false ? "Already in journal." : "Added to journal.", error: false });
+      setJournalState({ busy: false, message: response.data.created === false ? "Already in journal." : successMessage, error: false });
       onJournalCreated?.();
-    } catch (requestError) { setJournalState({ busy: false, message: requestError.response?.data?.error || "Could not add setup to journal.", error: true }); }
+    } catch (requestError) {
+      const detail = requestError.response?.data?.error;
+      setJournalState({ busy: false, message: detail ? `${failureMessage}: ${detail}` : failureMessage, error: true });
+    }
   };
 
   return (
@@ -109,7 +121,7 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote, onJournal
         </div>
         <div className="next-action"><small>Next action</small><strong>{nextAction}</strong></div>
         {asset.invalidationReason && <p className="decision-warning">{asset.invalidationReason}</p>}
-        <button type="button" className="journal-add-button" disabled={!canJournal || journalState.busy} onClick={addToJournal}>{journalState.busy ? "Adding…" : "Add to Journal"}</button>
+        <button type="button" className="journal-add-button" disabled={journalState.busy} onClick={addToJournal}>{journalState.busy ? "Adding…" : actionLabel}</button>
         {journalState.message && <p className={journalState.error ? "decision-warning" : "journal-success"}>{journalState.message}</p>}
       </section>
 

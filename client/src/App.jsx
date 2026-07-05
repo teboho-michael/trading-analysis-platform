@@ -8,10 +8,11 @@ import "./App.css";
 import LowerTabs from "./components/Workspace/LowerTabs";
 import { useLivePrices } from "./hooks/useLivePrices";
 import { useFormingCandles } from "./hooks/useFormingCandles";
+import { CHART_TIMEFRAMES, getAnalysisTimeframe } from "./config/timeframes";
 
 const formatTime = (value) => value ? new Date(value).toLocaleTimeString() : "—";
 const TRACKED_ASSETS = new Set(["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"]);
-const CHART_TIMEFRAMES = new Set(["M1", "M5", "M15", "H1", "H4", "D1"]);
+const ALLOWED_CHART_TIMEFRAMES = new Set(CHART_TIMEFRAMES);
 const initialParam = (name, allowed, fallback) => {
   const value = new URLSearchParams(window.location.search).get(name);
   return allowed.has(value) ? value : fallback;
@@ -19,7 +20,7 @@ const initialParam = (name, allowed, fallback) => {
 
 function App() {
   const [selectedAsset, setSelectedAsset] = useState(() => initialParam("symbol", TRACKED_ASSETS, "BTCUSD"));
-  const [selectedTimeframe, setSelectedTimeframe] = useState(() => initialParam("timeframe", CHART_TIMEFRAMES, "H1"));
+  const [selectedTimeframe, setSelectedTimeframe] = useState(() => initialParam("timeframe", ALLOWED_CHART_TIMEFRAMES, "H1"));
   const [liveMode, setLiveMode] = useState(true);
   const [chartMode, setChartMode] = useState("tradingview");
   const [analysisVisible, setAnalysisVisible] = useState(true);
@@ -116,7 +117,7 @@ function App() {
           onChartModeChange={setChartMode}
         />
 
-        {!focusMode && analysisVisible && <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} onJournalCreated={() => setJournalRefreshToken((value) => value + 1)} />}
+        {!focusMode && analysisVisible && <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} selectedTimeframe={getAnalysisTimeframe(selectedTimeframe)} onJournalCreated={() => setJournalRefreshToken((value) => value + 1)} />}
         {!focusMode && <LowerTabs selectedSymbol={selectedAsset} collapsed={!historyVisible} onToggleCollapsed={() => setHistoryVisible((value) => !value)} journalRefreshToken={journalRefreshToken} />}
       </main>
     </div>

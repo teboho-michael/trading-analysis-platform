@@ -16,14 +16,10 @@ export default function ChartToolbar({
       <label>
         <span>Timeframe</span>
         <select aria-label="Chart timeframe" value={selectedTimeframe} onChange={(event) => onTimeframeChange(event.target.value)}>
-          <option value="M1">M1</option>
-          <option value="M5">M5</option>
-          <option value="M15">M15</option>
-          <option value="H1">H1</option>
-          <option value="H4">H4</option>
-          <option value="D1">D1</option>
+          {CHART_TIMEFRAMES.map((timeframe) => <option value={timeframe} key={timeframe}>{timeframe}{isVisualOnlyTimeframe(timeframe) ? " · visual only" : ""}</option>)}
         </select>
       </label>
     </div>
   );
 }
+import { CHART_TIMEFRAMES, isVisualOnlyTimeframe } from "../../config/timeframes";

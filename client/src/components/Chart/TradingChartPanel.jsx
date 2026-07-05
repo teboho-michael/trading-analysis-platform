@@ -3,6 +3,7 @@ import Chart from "./Chart";
 import TradingViewChart from "./TradingViewChart";
 import ChartToolbar from "./ChartToolbar";
 import { collectMarketData } from "../../services/marketService";
+import { isVisualOnlyTimeframe } from "../../config/timeframes";
 
 export default function TradingChartPanel({
   candles,
@@ -21,6 +22,8 @@ export default function TradingChartPanel({
   const [collecting, setCollecting] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
+  const isVisualOnly = isVisualOnlyTimeframe(selectedTimeframe);
+  const visualOnlyMessage = `${selectedTimeframe} visual only — internal analysis supports H1/H4/D1.`;
 
   const latestPrice = liveQuote?.price ?? candles.at(-1)?.close;
   const isForming = candles.at(-1)?.isForming === true;
@@ -32,6 +35,11 @@ export default function TradingChartPanel({
       : null;
 
   const handleCollectData = async () => {
+    if (isVisualOnly) {
+      setMessage(visualOnlyMessage);
+      setMessageType("success");
+      return;
+    }
     try {
       setCollecting(true);
       setMessage("");
@@ -74,7 +82,7 @@ export default function TradingChartPanel({
           />
 
           {chartMode === "internal" && (
-            <button onClick={handleCollectData} disabled={collecting}>
+            <button onClick={handleCollectData} disabled={collecting || isVisualOnly} title={isVisualOnly ? visualOnlyMessage : undefined}>
               {collecting ? "Collecting..." : "Collect Latest Data"}
             </button>
           )}
@@ -104,6 +112,7 @@ export default function TradingChartPanel({
         <span>
           Strategy <strong>H1 closed candles</strong>
         </span>
+        {isVisualOnly && <span className="forming-status">{selectedTimeframe} visual only <strong>Analysis uses H1</strong></span>}
       </div>
 
       {message && (
@@ -120,6 +129,11 @@ export default function TradingChartPanel({
 
       {chartMode === "tradingview" ? (
         <TradingViewChart symbol={selectedAsset} timeframe={selectedTimeframe} />
+      ) : isVisualOnly ? (
+        <div className="chart-state" role="status">
+          <strong>This timeframe is visual-only.</strong>
+          <span>Switch to H1 for internal analysis.</span>
+        </div>
       ) : candlesLoading ? (
         <div className="chart-state" role="status">
           Loading {selectedAsset} {selectedTimeframe} candles…

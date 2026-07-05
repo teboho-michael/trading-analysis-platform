@@ -408,6 +408,8 @@
 .journal-success { margin: 7px 0 0; color: #65d6aa; font-size: 10px; }
 .journal-workspace { min-width: 0; }
 .journal-stats { display: grid; grid-template-columns: repeat(7, minmax(80px, 1fr)); gap: 6px; margin-bottom: 8px; }
+.journal-filters { display: flex; gap: 5px; margin-bottom: 8px; }
+.journal-filters button.active { border-color: #4f82bd; background: #17304e; color: #eef7ff; }
 .journal-stats span { padding: 7px; border: 1px solid var(--border-soft); background: #0a0f17; color: var(--subtle); font-size: 9px; text-transform: uppercase; }
 .journal-stats strong { display: block; margin-top: 3px; color: var(--text); font-size: 13px; }
 .journal-table-wrap { overflow: auto; }
