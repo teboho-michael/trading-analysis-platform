@@ -1,5 +1,5 @@
 import { getInstrument } from "../../config/instruments";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../../services/api";
 
 const formatValue = (value, maximumFractionDigits = 5) => {
@@ -47,9 +47,8 @@ const getAlignmentMessage = (metadata) => {
   return "Chart and analysis are aligned by direct symbol.";
 };
 
-export default function AnalysisPanel({ asset, latestPrice, liveQuote, selectedTimeframe = "H1", onJournalCreated }) {
-  const [journalState, setJournalState] = useState({ busy: false, message: "", error: false });
-  if (!asset) return <aside className="analysis-panel panel-shell"><p className="analysis-empty">Selected instrument analysis is unavailable.</p></aside>;
+function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe = "H1", onJournalCreated }) {
+  const [journalState, setJournalState] = useState({ busy: false, message: "", error: false, entry: null });
 
   const instrument = getInstrument(asset.symbol);
   const metadata = asset.instrument || {};
@@ -77,17 +76,30 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote, selectedT
   const insufficientData = [asset.dailyBias, asset.h4Bias, asset.h1Trend].some((value) => String(value).toLowerCase().includes("insufficient"));
   const providerLimited = !canJournal && insufficientData && ["SPX", "NDX"].includes(metadata.analysisProviderSymbol || metadata.providerSymbol);
   const entryType = canJournal ? "setup" : providerLimited ? "provider_limited" : (stage === "WATCH" || activeZone) ? "watch" : "observation";
+  const analysisTimeframe = ["M1", "M5", "M15"].includes(selectedTimeframe) ? "H1" : selectedTimeframe;
+  const dedupeKey = useMemo(() => `${asset.symbol}:${entryType}:${stage}:${asset.qualityScore ?? 0}:${asset.dailyBias || "none"}:${asset.h4Bias || "none"}:${asset.h1Trend || "none"}:${new Date().toISOString().slice(0, 10)}`, [asset.symbol, asset.qualityScore, asset.dailyBias, asset.h4Bias, asset.h1Trend, entryType, stage]);
   const actionLabel = entryType === "setup" ? "Add Setup to Journal" : entryType === "provider_limited" ? "Track Provider Limitation" : entryType === "watch" ? "Track Watch" : "Track Observation";
   const failureMessage = entryType === "setup" ? "Could not add setup to journal" : entryType === "watch" ? "Could not track watch entry" : "Could not track observation";
   const successMessage = entryType === "setup" ? "Setup added to journal." : entryType === "watch" ? "Watch entry tracked." : entryType === "provider_limited" ? "Provider limitation tracked." : "Observation tracked.";
+  useEffect(() => {
+    let active = true;
+    api.get(`/journal?symbol=${encodeURIComponent(asset.symbol)}&limit=50`).then((response) => {
+      if (!active) return;
+      const existing = (response.data.entries || []).find((entry) => entry.signal_id && entry.signal_id === asset.latestSignal?.id)
+        || (response.data.entries || []).find((entry) => entry.dedupe_key === dedupeKey);
+      setJournalState((current) => ({ ...current, entry: existing || null, message: existing ? "Already in journal." : "", error: false }));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [asset.symbol, asset.latestSignal?.id, dedupeKey]);
   const addToJournal = async () => {
     setJournalState({ busy: true, message: "", error: false });
     try {
       const response = asset.latestSignal?.id
         && entryType === "setup" ? await api.post(`/journal/from-signal/${asset.latestSignal.id}`)
         : await api.post("/journal", {
-          entry_type: entryType, symbol: asset.symbol, strategy_name: entryType === "setup" ? "core-confluence" : undefined, strategy_version: entryType === "setup" ? "v3.5" : undefined, timeframe: selectedTimeframe, direction: entryType === "setup" ? direction : undefined,
+          entry_type: entryType, symbol: asset.symbol, strategy_name: entryType === "setup" ? "core-confluence" : undefined, strategy_version: entryType === "setup" ? "v3.6" : undefined, timeframe: analysisTimeframe, direction: entryType === "setup" ? direction : undefined,
           setup_stage: stage || "WAIT", quality_score: asset.qualityScore, status: entryType === "watch" ? "watching" : "pending", outcome: entryType === "watch" ? "watching" : "pending", d1_bias: asset.dailyBias, h4_bias: asset.h4Bias,
+          execution_mode: "analysis_only", lifecycle_update_count: 0, requires_review: false, review_reason: null,
           h1_trend: asset.h1Trend, ema_confirmation: Boolean(emaConfirmation?.passed), zone_type: activeZone?.zone_type, zone_timeframe: activeZone?.timeframe,
           zone_high: activeZone?.zone_high, zone_low: activeZone?.zone_low, zone_status: activeZone?.status, distance_from_zone: asset.zoneProximity?.distanceFromZone,
           entry: levels?.entry, stop_loss: levels?.stopLoss, tp1: levels?.takeProfit1, tp2: levels?.takeProfit2,
@@ -95,14 +107,23 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote, selectedT
           tradingview_symbol: metadata.tradingViewSymbol, price_scale_mode: metadata.priceScaleMode, source_mode: metadata.sourceMode,
           reviewer_notes: entryType === "setup" ? undefined : "Tracked from right panel observation",
           notes: entryType === "provider_limited" ? `Analysis unavailable for ${asset.symbol}: current provider access does not supply ${metadata.analysisProviderSymbol || metadata.providerSymbol}.` : nextAction,
-          dedupe_key: `${asset.symbol}:${entryType}:${stage}:${asset.qualityScore ?? 0}:${asset.dailyBias || "none"}:${asset.h4Bias || "none"}:${asset.h1Trend || "none"}:${new Date().toISOString().slice(0, 10)}`,
+          dedupe_key: dedupeKey,
         });
-      setJournalState({ busy: false, message: response.data.created === false ? "Already in journal." : successMessage, error: false });
+      setJournalState({ busy: false, message: response.data.created === false ? "Already in journal." : successMessage, error: false, entry: response.data.entry });
       onJournalCreated?.();
     } catch (requestError) {
       const detail = requestError.response?.data?.error;
       setJournalState({ busy: false, message: detail ? `${failureMessage}: ${detail}` : failureMessage, error: true });
     }
+  };
+  const updateLifecycle = async () => {
+    if (!journalState.entry?.id) return;
+    setJournalState((current) => ({ ...current, busy: true, message: "" }));
+    try {
+      const response = await api.post(`/journal/${journalState.entry.id}/lifecycle/update`);
+      setJournalState({ busy: false, message: response.data.reason || "Lifecycle updated.", error: false, entry: response.data.entry });
+      onJournalCreated?.();
+    } catch (requestError) { setJournalState((current) => ({ ...current, busy: false, error: true, message: requestError.response?.data?.error || "Could not update lifecycle." })); }
   };
 
   return (
@@ -121,7 +142,9 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote, selectedT
         </div>
         <div className="next-action"><small>Next action</small><strong>{nextAction}</strong></div>
         {asset.invalidationReason && <p className="decision-warning">{asset.invalidationReason}</p>}
-        <button type="button" className="journal-add-button" disabled={journalState.busy} onClick={addToJournal}>{journalState.busy ? "Adding…" : actionLabel}</button>
+        <button type="button" className="journal-add-button" disabled={journalState.busy || Boolean(journalState.entry)} onClick={addToJournal}>{journalState.busy ? "Working…" : journalState.entry ? "Already in Journal" : actionLabel}</button>
+        {journalState.entry && <p className="journal-success">Lifecycle: {journalState.entry.lifecycle_status || journalState.entry.status} · {journalState.entry.outcome}</p>}
+        {journalState.entry?.entry_type === "setup" && <button type="button" className="journal-add-button" disabled={journalState.busy} onClick={updateLifecycle}>Update Lifecycle</button>}
         {journalState.message && <p className={journalState.error ? "decision-warning" : "journal-success"}>{journalState.message}</p>}
       </section>
 
@@ -179,4 +202,9 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote, selectedT
       </section>
     </aside>
   );
+}
+
+export default function AnalysisPanel(props) {
+  if (!props.asset) return <aside className="analysis-panel panel-shell"><p className="analysis-empty">Selected instrument analysis is unavailable.</p></aside>;
+  return <AnalysisPanelContent {...props} />;
 }

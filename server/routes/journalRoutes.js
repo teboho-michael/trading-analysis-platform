@@ -1,9 +1,14 @@
 const router = require("express").Router();
 const controller = require("../controllers/journalController");
 router.get("/stats", controller.stats);
+router.get("/open", controller.open);
+router.get("/performance", controller.getPerformance);
+router.post("/lifecycle/update", controller.updateOpenLifecycles);
 router.get("/", controller.list);
+router.get("/:id/lifecycle", controller.getLifecycle);
 router.get("/:id", controller.get);
 router.post("/from-signal/:signalId", controller.fromSignal);
 router.post("/", controller.create);
 router.patch("/:id/outcome", controller.updateOutcome);
+router.post("/:id/lifecycle/update", controller.updateLifecycle);
 module.exports = router;

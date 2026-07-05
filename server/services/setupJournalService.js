@@ -2,10 +2,11 @@ const pool = require("../db/connection");
 const { getInstrument } = require("../market/instrumentRegistry");
 
 const ENTRY_TYPES = new Set(["setup", "watch", "observation", "provider_limited"]);
-const OUTCOMES = new Set(["pending", "watching", "triggered", "tp1_hit", "tp2_hit", "stopped_out", "invalidated", "expired", "manually_closed", "converted_to_setup", "reviewed", "ignored"]);
+const OUTCOMES = new Set(["pending", "watching", "triggered", "tp1_hit", "tp2_hit", "stopped_out", "invalidated", "expired", "manually_closed", "requires_review", "ambiguous", "converted_to_setup", "reviewed", "ignored"]);
 const REVIEW_STATUSES = new Set(["unreviewed", "reviewed", "ignored"]);
+const LIFECYCLE_STATUSES = new Set(["watching", "ready", "triggered", "active", "completed", "invalidated", "expired", "manually_closed", "requires_review"]);
 const COMPLETED_SETUP = ["tp1_hit", "tp2_hit", "stopped_out", "invalidated", "manually_closed"];
-const COLUMNS = ["signal_id", "entry_type", "dedupe_key", "symbol", "strategy_name", "strategy_version", "timeframe", "direction", "setup_stage", "quality_score", "status", "outcome", "d1_bias", "h4_bias", "h1_trend", "ema_confirmation", "zone_type", "zone_timeframe", "zone_high", "zone_low", "zone_status", "distance_from_zone", "entry", "stop_loss", "tp1", "tp2", "risk_reward_tp1", "risk_reward_tp2", "triggered_at", "closed_at", "max_favourable_move", "max_adverse_move", "final_r_result", "review_status", "reviewer_notes", "notes", "screenshot_url", "tags", "data_source", "provider_symbol", "tradingview_symbol", "price_scale_mode", "source_mode"];
+const COLUMNS = ["signal_id", "entry_type", "dedupe_key", "symbol", "strategy_name", "strategy_version", "timeframe", "direction", "setup_stage", "quality_score", "status", "outcome", "d1_bias", "h4_bias", "h1_trend", "ema_confirmation", "zone_type", "zone_timeframe", "zone_high", "zone_low", "zone_status", "distance_from_zone", "entry", "stop_loss", "tp1", "tp2", "risk_reward_tp1", "risk_reward_tp2", "triggered_at", "closed_at", "max_favourable_move", "max_adverse_move", "final_r_result", "review_status", "reviewer_notes", "notes", "screenshot_url", "tags", "data_source", "provider_symbol", "tradingview_symbol", "price_scale_mode", "source_mode", "broker_symbol", "broker_server", "account_currency", "execution_mode", "broker_ticket", "actual_entry", "actual_stop_loss", "actual_take_profit", "actual_close_price", "actual_profit_loss", "actual_profit_loss_currency", "lifecycle_status", "lifecycle_update_count", "requires_review", "review_reason"];
 
 const validationError = (message) => Object.assign(new Error(message), { statusCode: 400 });
 const finite = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
@@ -38,8 +39,15 @@ const prepareEntry = (input) => {
   if (entryType === "provider_limited" && status !== "pending") throw validationError("provider_limited status must be pending when created");
   if (entryType === "provider_limited" && !input.data_source && !input.provider_symbol) throw validationError("provider_limited entries require data_source or provider_symbol");
   if (!REVIEW_STATUSES.has(reviewStatus)) throw validationError("invalid review_status");
+  const lifecycleStatus = input.lifecycle_status || (outcome === "triggered" ? "active" : COMPLETED_SETUP.includes(outcome) || outcome === "expired" ? "completed" : entryType === "watch" || status === "watching" ? "watching" : entryType === "setup" ? "ready" : null);
+  if (lifecycleStatus && !LIFECYCLE_STATUSES.has(lifecycleStatus)) throw validationError("invalid lifecycle_status");
   return {
     ...input, entry_type: entryType, symbol, direction: ["BUY", "SELL"].includes(direction) ? direction : null, status, outcome, review_status: reviewStatus,
+    execution_mode: input.execution_mode || "analysis_only",
+    lifecycle_status: lifecycleStatus,
+    lifecycle_update_count: 0,
+    requires_review: input.requires_review === true,
+    review_reason: input.review_reason || null,
     strategy_version: input.strategy_version || (entryType === "setup" ? "v3.5" : null),
     timeframe: input.timeframe || null,
     setup_stage: input.setup_stage || (entryType === "setup" ? "READY" : entryType === "watch" ? "WATCH" : "OBSERVATION"),
@@ -82,7 +90,7 @@ const createJournalEntryFromSignal = async (signalId) => {
 
 const buildFilters = (filters = {}) => {
   const clauses = [], values = [];
-  for (const [key, column] of [["symbol", "symbol"], ["entry_type", "entry_type"], ["strategy_name", "strategy_name"], ["status", "status"], ["outcome", "outcome"]]) if (filters[key]) { values.push(filters[key]); clauses.push(`${column}=$${values.length}`); }
+  for (const [key, column] of [["symbol", "symbol"], ["entry_type", "entry_type"], ["strategy_name", "strategy_name"], ["status", "status"], ["outcome", "outcome"], ["direction", "direction"]]) if (filters[key]) { values.push(filters[key]); clauses.push(`${column}=$${values.length}`); }
   if (filters.from) { if (Number.isNaN(Date.parse(filters.from))) throw validationError("from must be a valid date"); values.push(filters.from); clauses.push(`created_at >= $${values.length}`); }
   if (filters.to) { if (Number.isNaN(Date.parse(filters.to))) throw validationError("to must be a valid date"); values.push(filters.to); clauses.push(`created_at <= $${values.length}`); }
   return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", values };
@@ -92,13 +100,14 @@ const listJournalEntries = async (filters) => { const query = buildFilters(filte
 const getJournalEntry = async (id) => { if (!Number.isInteger(Number(id)) || Number(id) <= 0) throw validationError("id must be a positive integer"); const result = await pool.query("SELECT * FROM setup_journal WHERE id=$1", [id]); return result.rows[0] || null; };
 
 const updateJournalOutcome = async (id, update) => {
-  const allowed = ["outcome", "status", "triggered_at", "closed_at", "max_favourable_move", "max_adverse_move", "final_r_result", "reviewer_notes", "review_status", "tags"];
+  const allowed = ["outcome", "status", "lifecycle_status", "triggered_at", "closed_at", "max_favourable_move", "max_adverse_move", "final_r_result", "reviewer_notes", "review_status", "requires_review", "review_reason", "notes", "actual_entry", "actual_stop_loss", "actual_take_profit", "actual_close_price", "actual_profit_loss", "actual_profit_loss_currency"];
   const keys = allowed.filter((key) => Object.prototype.hasOwnProperty.call(update, key));
   if (!keys.length) throw validationError("no supported outcome fields supplied");
   if (update.outcome && !OUTCOMES.has(String(update.outcome).toLowerCase())) throw validationError("invalid outcome");
   if (update.status && !OUTCOMES.has(String(update.status).toLowerCase())) throw validationError("invalid status");
   if (update.review_status && !REVIEW_STATUSES.has(String(update.review_status).toLowerCase())) throw validationError("invalid review_status");
-  for (const key of ["max_favourable_move", "max_adverse_move", "final_r_result"]) if (update[key] !== undefined && update[key] !== null && !finite(update[key])) throw validationError(`${key} must be numeric`);
+  if (update.lifecycle_status && !LIFECYCLE_STATUSES.has(String(update.lifecycle_status).toLowerCase())) throw validationError("invalid lifecycle_status");
+  for (const key of ["max_favourable_move", "max_adverse_move", "final_r_result", "actual_entry", "actual_stop_loss", "actual_take_profit", "actual_close_price", "actual_profit_loss"]) if (update[key] !== undefined && update[key] !== null && !finite(update[key])) throw validationError(`${key} must be numeric`);
   const current = await getJournalEntry(id);
   if (!current) return null;
   const nextOutcome = update.outcome ? String(update.outcome).toLowerCase() : null;
@@ -106,7 +115,7 @@ const updateJournalOutcome = async (id, update) => {
   const nonSetupOnly = new Set(["converted_to_setup", "reviewed", "ignored"]);
   if (current.entry_type === "setup" && nonSetupOnly.has(nextOutcome)) throw validationError("outcome is not valid for setup entries");
   if (current.entry_type !== "setup" && setupOnly.has(nextOutcome)) throw validationError("trade outcomes are only valid for setup entries");
-  const values = keys.map((key) => ["outcome", "status", "review_status"].includes(key) ? String(update[key]).toLowerCase() : update[key]); values.push(id);
+  const values = keys.map((key) => ["outcome", "status", "review_status", "lifecycle_status"].includes(key) ? String(update[key]).toLowerCase() : update[key]); values.push(id);
   const result = await pool.query(`UPDATE setup_journal SET ${keys.map((key, index) => `${key}=$${index + 1}`).join(", ")}, updated_at=CURRENT_TIMESTAMP WHERE id=$${values.length} RETURNING *`, values);
   return result.rows[0] || null;
 };

@@ -418,6 +418,13 @@
 .journal-actions button { padding: 3px 5px; font-size: 9px; }
 .journal-message { padding: 14px; color: var(--subtle); text-align: center; }
 .journal-message.error { color: #ff8997; }
+.journal-message.success { color: #65d6aa; }
+.journal-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 9px 0 5px; }
+.journal-section-heading h3 { margin: 0; font-size: 11px; color: var(--text); }
+.journal-section-heading small { color: var(--subtle); }
+.journal-section-table { max-height: 185px; }
+.journal-section-table table { min-width: 1100px; }
+.performance-summary { grid-template-columns: repeat(8, minmax(75px, 1fr)); }
 .direction-badge { min-width: 48px; padding: 4px 7px; border: 1px solid #725b2d; border-radius: 3px; color: var(--warning); font-size: 9px; font-weight: 850; text-align: center; letter-spacing: .08em; }
 .direction-badge.direction-buy { border-color: #267b65; background: rgba(45, 212, 167, .08); color: var(--positive); }
 .direction-badge.direction-sell { border-color: #793640; background: rgba(240, 91, 105, .08); color: var(--negative); }
