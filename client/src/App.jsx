@@ -25,6 +25,7 @@ function App() {
   const [analysisVisible, setAnalysisVisible] = useState(true);
   const [historyVisible, setHistoryVisible] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
+  const [journalRefreshToken, setJournalRefreshToken] = useState(0);
 
   const { dashboard, loading, error, refreshDashboard } = useDashboard();
   const {
@@ -115,8 +116,8 @@ function App() {
           onChartModeChange={setChartMode}
         />
 
-        {!focusMode && analysisVisible && <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} />}
-        {!focusMode && <LowerTabs selectedSymbol={selectedAsset} collapsed={!historyVisible} onToggleCollapsed={() => setHistoryVisible((value) => !value)} />}
+        {!focusMode && analysisVisible && <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} onJournalCreated={() => setJournalRefreshToken((value) => value + 1)} />}
+        {!focusMode && <LowerTabs selectedSymbol={selectedAsset} collapsed={!historyVisible} onToggleCollapsed={() => setHistoryVisible((value) => !value)} journalRefreshToken={journalRefreshToken} />}
       </main>
     </div>
   );

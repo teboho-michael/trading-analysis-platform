@@ -403,6 +403,19 @@
 .setup-card { border-color: #344158; background: linear-gradient(145deg, #101827, #0c121c); }
 .setup-card.direction-buy { border-color: #216b5a; }
 .setup-card.direction-sell { border-color: #74333d; }
+.journal-add-button { margin-top: 10px; width: 100%; border: 1px solid #35577d; background: #13243a; color: #d8eaff; }
+.journal-add-button:disabled { cursor: not-allowed; opacity: .45; }
+.journal-success { margin: 7px 0 0; color: #65d6aa; font-size: 10px; }
+.journal-workspace { min-width: 0; }
+.journal-stats { display: grid; grid-template-columns: repeat(7, minmax(80px, 1fr)); gap: 6px; margin-bottom: 8px; }
+.journal-stats span { padding: 7px; border: 1px solid var(--border-soft); background: #0a0f17; color: var(--subtle); font-size: 9px; text-transform: uppercase; }
+.journal-stats strong { display: block; margin-top: 3px; color: var(--text); font-size: 13px; }
+.journal-table-wrap { overflow: auto; }
+.journal-table-wrap table { min-width: 1250px; }
+.journal-actions { display: flex; gap: 3px; }
+.journal-actions button { padding: 3px 5px; font-size: 9px; }
+.journal-message { padding: 14px; color: var(--subtle); text-align: center; }
+.journal-message.error { color: #ff8997; }
 .direction-badge { min-width: 48px; padding: 4px 7px; border: 1px solid #725b2d; border-radius: 3px; color: var(--warning); font-size: 9px; font-weight: 850; text-align: center; letter-spacing: .08em; }
 .direction-badge.direction-buy { border-color: #267b65; background: rgba(45, 212, 167, .08); color: var(--positive); }
 .direction-badge.direction-sell { border-color: #793640; background: rgba(240, 91, 105, .08); color: var(--negative); }

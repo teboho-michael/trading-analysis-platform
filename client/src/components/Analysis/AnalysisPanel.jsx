@@ -1,4 +1,6 @@
 import { getInstrument } from "../../config/instruments";
+import { useState } from "react";
+import api from "../../services/api";
 
 const formatValue = (value, maximumFractionDigits = 5) => {
   const numericValue = Number(value);
@@ -45,7 +47,8 @@ const getAlignmentMessage = (metadata) => {
   return "Chart and analysis are aligned by direct symbol.";
 };
 
-export default function AnalysisPanel({ asset, latestPrice, liveQuote }) {
+export default function AnalysisPanel({ asset, latestPrice, liveQuote, onJournalCreated }) {
+  const [journalState, setJournalState] = useState({ busy: false, message: "", error: false });
   if (!asset) return <aside className="analysis-panel panel-shell"><p className="analysis-empty">Selected instrument analysis is unavailable.</p></aside>;
 
   const instrument = getInstrument(asset.symbol);
@@ -70,6 +73,25 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote }) {
   const emaConfirmation = checklist.find((item) => item.key === "h1Ema");
   const zoneAlignment = checklist.find((item) => item.key === "activeZone");
   const proximity = checklist.find((item) => item.key === "proximity");
+  const canJournal = Boolean(levels?.entry && levels?.stopLoss && levels?.takeProfit1 && ["BUY", "SELL"].includes(direction));
+  const addToJournal = async () => {
+    setJournalState({ busy: true, message: "", error: false });
+    try {
+      const response = asset.latestSignal?.id
+        ? await api.post(`/journal/from-signal/${asset.latestSignal.id}`)
+        : await api.post("/journal", {
+          symbol: asset.symbol, strategy_name: "core-confluence", strategy_version: "v3.4", timeframe: activeZone?.timeframe || "H4", direction,
+          setup_stage: stage, quality_score: asset.qualityScore, status: "pending", outcome: "pending", d1_bias: asset.dailyBias, h4_bias: asset.h4Bias,
+          h1_trend: asset.h1Trend, ema_confirmation: Boolean(emaConfirmation?.passed), zone_type: activeZone?.zone_type, zone_timeframe: activeZone?.timeframe,
+          zone_high: activeZone?.zone_high, zone_low: activeZone?.zone_low, zone_status: activeZone?.status, distance_from_zone: asset.zoneProximity?.distanceFromZone,
+          entry: levels.entry, stop_loss: levels.stopLoss, tp1: levels.takeProfit1, tp2: levels.takeProfit2,
+          data_source: metadata.dataSourceLabel, provider_symbol: metadata.analysisProviderSymbol || metadata.providerSymbol,
+          tradingview_symbol: metadata.tradingViewSymbol, price_scale_mode: metadata.priceScaleMode, source_mode: metadata.sourceMode,
+        });
+      setJournalState({ busy: false, message: response.data.created === false ? "Already in journal." : "Added to journal.", error: false });
+      onJournalCreated?.();
+    } catch (requestError) { setJournalState({ busy: false, message: requestError.response?.data?.error || "Could not add setup to journal.", error: true }); }
+  };
 
   return (
     <aside className="analysis-panel panel-shell decision-panel" aria-label="Trading decision analysis">
@@ -87,6 +109,8 @@ export default function AnalysisPanel({ asset, latestPrice, liveQuote }) {
         </div>
         <div className="next-action"><small>Next action</small><strong>{nextAction}</strong></div>
         {asset.invalidationReason && <p className="decision-warning">{asset.invalidationReason}</p>}
+        <button type="button" className="journal-add-button" disabled={!canJournal || journalState.busy} onClick={addToJournal}>{journalState.busy ? "Adding…" : "Add to Journal"}</button>
+        {journalState.message && <p className={journalState.error ? "decision-warning" : "journal-success"}>{journalState.message}</p>}
       </section>
 
       <section className="decision-card levels-card">
