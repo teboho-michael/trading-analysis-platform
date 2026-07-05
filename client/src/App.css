@@ -425,6 +425,20 @@
 .journal-section-table { max-height: 185px; }
 .journal-section-table table { min-width: 1100px; }
 .performance-summary { grid-template-columns: repeat(8, minmax(75px, 1fr)); }
+.research-workspace { min-width: 0; }
+.research-form { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(105px, 1fr)) auto; gap: 6px; align-items: end; }
+.research-form label { display: flex; flex-direction: column; gap: 3px; color: var(--subtle); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.research-form select, .research-form input, .research-form button { min-height: 28px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 3px; background: #101722; color: var(--text); font-size: 9px; }
+.research-form button { border-color: #35577d; background: #13243a; color: #d8eaff; }
+.research-columns { display: grid; grid-template-columns: minmax(480px, 1.4fr) minmax(430px, 1fr); gap: 10px; }
+.research-runs { max-height: 120px; }
+.research-runs tbody tr { cursor: pointer; }
+.research-runs .selected-row { background: #142039; }
+.research-summary { display: grid; grid-template-columns: repeat(4, minmax(75px, 1fr)); gap: 5px; }
+.research-summary span { padding: 6px; border: 1px solid var(--border-soft); background: #0a0f17; color: var(--subtle); font-size: 8px; text-transform: uppercase; }
+.research-summary strong { display: block; margin-top: 3px; overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.research-summary .wide { grid-column: 1 / -1; }
+.research-results { max-height: 150px; }
 .direction-badge { min-width: 48px; padding: 4px 7px; border: 1px solid #725b2d; border-radius: 3px; color: var(--warning); font-size: 9px; font-weight: 850; text-align: center; letter-spacing: .08em; }
 .direction-badge.direction-buy { border-color: #267b65; background: rgba(45, 212, 167, .08); color: var(--positive); }
 .direction-badge.direction-sell { border-color: #793640; background: rgba(240, 91, 105, .08); color: var(--negative); }

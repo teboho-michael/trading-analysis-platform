@@ -10,19 +10,19 @@ The platform is a private, evidence-led systematic trading research environment 
 - V3.4: forward-test journal foundation.
 - V3.5: refined journal entry types and protected visual-only timeframes.
 - V3.6: live setup lifecycle and journal-derived performance layer.
+- V4.0: historical research layer with strategy versions, stored-candle backtest runs, evidence results, and compact Research UI.
 
 ## Modules and database roadmap
 
 Market ingestion/provider health feed normalized candles and explicit source metadata. Trend, zones, setup quality, signals, and risk remain analysis modules. The journal is the durable proof layer. Its lifecycle and performance services consume only stored candles, backend prices, and journal outcomes. Future strategy-registry and backtest modules will consume reviewed data through separate boundaries.
 
-Current durable entities are assets, candles, zones, signals, scan runs, alerts, and `setup_journal`. Future additive migrations may introduce immutable strategy versions, backtest runs/trades, dataset snapshots, and portfolio experiments. Data must never be wiped automatically.
+Current durable entities are assets, candles, zones, signals, scan runs, alerts, `setup_journal`, `strategy_versions`, `backtest_runs`, and `backtest_results`. Future additive migrations may introduce dataset snapshots and portfolio experiments. Data must never be wiped automatically.
 
 ## Build phases
 
-- V4: broker-data reconciliation, controlled lifecycle scheduling, and richer review workflows.
-- V5: strategy registry and reproducible dataset/version metadata.
-- V6: deterministic backtesting with explicit costs and provenance.
-- V7: walk-forward research and deployment-readiness boundaries after evidence supports them.
+- V4: historical research layer, strategy versioning, stored-candle backtest runs, and evidence results.
+- V4.1: broker-data reconciliation, dataset provenance, controlled scheduling, and richer review workflows.
+- V5: explicit research costs, walk-forward evaluation, and deployment-readiness boundaries after evidence supports them.
 
 ## V3.4 scope
 
@@ -35,6 +35,12 @@ Deferred: backtesting, optimization, ML, automatic outcome tracking, broker orde
 Implemented: additive migration 008, broker-ready reconciliation fields, evidence-only candle/price lifecycle service, ambiguity review, structured lifecycle endpoints, real journal performance grouped by symbol/direction/quality/entry type, an operational Forward Test Journal workspace, and journal-backed Performance tab.
 
 Deliberately deferred: background jobs, XM/MT5 connectivity, broker tickets, order placement, automatic execution, inferred outcomes without market evidence, and proxy index data.
+
+## V4.0 scope
+
+Implemented: additive migration 009, a real seeded strategy version, registry/query APIs, deterministic as-of-time D1/H4/H1 evaluation over stored candles, conservative TP/SL ambiguity handling, durable run/result records, aggregate R metrics, and a compact lower Research tab.
+
+Deliberately deferred: provider collection during a run, TradingView data access, transaction costs, intrabar order guesses, portfolio simulation, optimization, broker orders, and fake results when stored history is insufficient.
 
 ## Testing and commit workflow
 
