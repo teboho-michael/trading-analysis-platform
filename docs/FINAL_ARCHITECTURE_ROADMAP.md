@@ -20,8 +20,8 @@ Current durable entities are assets, candles, zones, signals, scan runs, alerts,
 
 ## Build phases
 
-- V4: historical research layer, strategy versioning, stored-candle backtest runs, and evidence results.
-- V4.1: broker-data reconciliation, dataset provenance, controlled scheduling, and richer review workflows.
+- V4: strategy versioning, stored-candle backtesting, data readiness, required-timeframe collection, historical research, statistical summaries, signal-scoring foundation, research intelligence, and evidence-based per-asset recommendations.
+- V4.1: completes V4 operational readiness and first-level intelligence; broker-data reconciliation and dataset provenance remain later work.
 - V5: explicit research costs, walk-forward evaluation, and deployment-readiness boundaries after evidence supports them.
 
 ## V3.4 scope

@@ -5,6 +5,7 @@ const { calculateRiskLevels } = require("../analysis/riskEngine");
 const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
 const { getInstrument } = require("../market/instrumentRegistry");
 const strategyRegistry = require("./strategyRegistryService");
+const readinessService = require("./candleReadinessService");
 
 const SUPPORTED_TIMEFRAMES = new Set(["H1"]);
 const REQUIRED_TREND_CANDLES = 201;
@@ -128,7 +129,9 @@ const calculateBacktestMetrics = (results) => {
   let equity = 0, peak = 0, maxDrawdown = 0;
   for (const item of completed) { equity += Number(item.final_r); peak = Math.max(peak, equity); maxDrawdown = Math.max(maxDrawdown, peak - equity); }
   const wins = completed.filter((item) => Number(item.final_r) > 0).length;
-  return { setups_found: results.length, completed_setups: completed.length, win_rate: completed.length ? round((wins / completed.length) * 100, 2) : null, average_r: completed.length ? round(totalR / completed.length) : null, total_r: completed.length ? round(totalR) : null, max_drawdown_r: completed.length ? round(maxDrawdown) : null, requires_review_count: results.filter((item) => item.requires_review).length };
+  const summarize = (items) => { const done = items.filter((item) => finite(item.final_r)), sum = done.reduce((total, item) => total + Number(item.final_r), 0); return { setups_found: items.length, completed_setups: done.length, win_rate: done.length ? round((done.filter((item) => Number(item.final_r) > 0).length / done.length) * 100, 2) : null, average_r: done.length ? round(sum / done.length) : null, total_r: done.length ? round(sum) : null }; };
+  const qualityRanges = [{ label: "0-25", min: 0, max: 25 }, { label: "26-50", min: 26, max: 50 }, { label: "51-75", min: 51, max: 75 }, { label: "76-100", min: 76, max: 100 }];
+  return { setups_found: results.length, completed_setups: completed.length, win_rate: completed.length ? round((wins / completed.length) * 100, 2) : null, average_r: completed.length ? round(totalR / completed.length) : null, total_r: completed.length ? round(totalR) : null, max_drawdown_r: completed.length ? round(maxDrawdown) : null, tp1_count: results.filter((item) => item.outcome === "tp1_hit").length, tp2_count: results.filter((item) => item.outcome === "tp2_hit").length, stopped_out_count: results.filter((item) => item.outcome === "stopped_out").length, requires_review_count: results.filter((item) => item.requires_review).length, by_direction: ["BUY", "SELL"].map((direction) => ({ direction, ...summarize(results.filter((item) => item.direction === direction)) })), by_quality_range: qualityRanges.map((range) => ({ quality_range: range.label, ...summarize(results.filter((item) => Number(item.quality_score) >= range.min && Number(item.quality_score) <= range.max)) })), historical_evidence_score: null, scoring_components: { technical_score: "quality_score", historical_evidence_score: null, risk_score: null, market_condition_score: null, final_confidence_score: null } };
 };
 
 const saveBacktestRun = async (runId, strategyVersionId, symbol, evaluation, metrics) => {
@@ -152,12 +155,19 @@ const runBacktest = async (input = {}) => {
   const created = await pool.query(`INSERT INTO backtest_runs (strategy_version_id,symbol,timeframe,date_from,date_to,status,started_at) VALUES ($1,$2,$3,$4,$5,'running',CURRENT_TIMESTAMP) RETURNING *`, [request.strategyVersionId, request.symbol, request.timeframe, request.dateFrom, request.dateTo]);
   const runId = created.rows[0].id;
   try {
+    const readiness = await readinessService.checkStrategyReadiness({ strategy_version_id: request.strategyVersionId, symbol: request.symbol, date_from: request.dateFrom, date_to: request.dateTo });
+    if (!readiness.ready) {
+      const summary = { failure_type: "missing_data", missing_timeframes: readiness.missing_timeframes, readiness, historical_evidence_score: null };
+      const message = `Required historical data is missing: ${readiness.missing_timeframes.join(", ")}.`;
+      await pool.query("UPDATE backtest_runs SET status='failed',completed_at=CURRENT_TIMESTAMP,result_summary_json=$1::jsonb,error_message=$2 WHERE id=$3", [JSON.stringify(summary), message, runId]);
+      throw serviceError(message, 400, { code: "INSUFFICIENT_CANDLES", readiness, alreadySavedFailure: true });
+    }
     const candles = await loadHistoricalCandles(request.symbol, request.timeframe, request.dateFrom, request.dateTo);
     const evaluation = evaluateStrategyOnCandles(strategy, candles, request.symbol);
     const metrics = calculateBacktestMetrics(evaluation.results);
     return await saveBacktestRun(runId, request.strategyVersionId, request.symbol, evaluation, metrics);
   } catch (error) {
-    await pool.query("UPDATE backtest_runs SET status='failed',completed_at=CURRENT_TIMESTAMP,error_message=$1 WHERE id=$2", [error.message, runId]);
+    if (!error.alreadySavedFailure) await pool.query("UPDATE backtest_runs SET status='failed',completed_at=CURRENT_TIMESTAMP,error_message=$1 WHERE id=$2", [error.message, runId]);
     error.backtestRunId = runId;
     throw error;
   }

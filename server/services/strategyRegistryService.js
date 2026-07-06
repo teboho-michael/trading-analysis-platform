@@ -2,6 +2,23 @@ const pool = require("../db/connection");
 
 const validationError = (message) => Object.assign(new Error(message), { statusCode: 400 });
 
+const DEFAULT_REQUIRED_TIMEFRAMES = [
+  { timeframe: "D1", role: "bias_context", minimumCandles: 201 },
+  { timeframe: "H4", role: "zone_context", minimumCandles: 201 },
+  { timeframe: "H1", role: "execution_confirmation", minimumCandles: 201 },
+];
+
+const getRequiredTimeframes = (strategyVersion) => {
+  if (!strategyVersion || strategyVersion.strategy_key !== "supply_demand_ema_200") return [];
+  const configured = strategyVersion.rules_json?.required_timeframes;
+  if (!Array.isArray(configured) || !configured.length) return DEFAULT_REQUIRED_TIMEFRAMES.map((item) => ({ ...item }));
+  return configured.map((item) => ({
+    timeframe: String(item.timeframe || "").toUpperCase(),
+    role: item.role || "strategy_context",
+    minimumCandles: Number(item.minimumCandles || item.minimum_candles || 201),
+  }));
+};
+
 const listStrategyVersions = async () => {
   const result = await pool.query("SELECT * FROM strategy_versions ORDER BY strategy_key, created_at DESC, id DESC");
   return result.rows;
@@ -34,6 +51,7 @@ const createStrategyVersion = async (payload = {}) => {
 const exposeCurrentStrategyConfig = (strategyVersion) => ({
   ...strategyVersion,
   implementation: strategyVersion?.strategy_key === "supply_demand_ema_200" ? "supply_demand_ema_200_v1" : null,
+  required_timeframes: getRequiredTimeframes(strategyVersion),
 });
 
-module.exports = { listStrategyVersions, getStrategyVersion, getActiveStrategyVersion, createStrategyVersion, exposeCurrentStrategyConfig };
+module.exports = { listStrategyVersions, getStrategyVersion, getActiveStrategyVersion, createStrategyVersion, exposeCurrentStrategyConfig, getRequiredTimeframes };

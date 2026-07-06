@@ -51,3 +51,5 @@ The compact lower workspace now includes a Research tab. It provides strategy/sy
 ## V4.1 / V5 candidates
 
 Add dataset provenance/snapshots, explicit transaction-cost models, richer exit policies, parameterized strategy implementations, automated regression fixtures, walk-forward partitions, and broker-candle reconciliation. These remain research features; execution and order placement stay outside this layer.
+
+V4.0 is the foundation. V4.1 completes operational research readiness, required-timeframe collection, preflight protection, statistical summaries, and first-level evidence intelligence.
