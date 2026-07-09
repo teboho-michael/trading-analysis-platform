@@ -16,6 +16,9 @@ const systemRoutes = require("./routes/systemRoutes");
 const alertRoutes = require("./routes/alertRoutes");
 const liveRoutes = require("./routes/liveRoutes");
 const journalRoutes = require("./routes/journalRoutes");
+const strategyRoutes = require("./routes/strategyRoutes");
+const backtestRoutes = require("./routes/backtestRoutes");
+const researchRoutes = require("./routes/researchRoutes");
 
 const app = express();
 
@@ -36,6 +39,9 @@ app.use("/api/signal-monitor", signalMonitorRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/live", liveRoutes);
 app.use("/api/journal", journalRoutes);
+app.use("/api/strategies", strategyRoutes);
+app.use("/api/backtests", backtestRoutes);
+app.use("/api/research", researchRoutes);
 app.use("/api", systemRoutes);
 
 const PORT = process.env.PORT || 5000;
