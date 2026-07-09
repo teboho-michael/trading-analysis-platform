@@ -34,3 +34,7 @@ The compact Research tab shows D1/H4/H1 readiness, provider limitation messages,
 ## Provider limitations and final V4 definition
 
 BTCUSD, XAUUSD, and USDJPY attempt real Twelve Data collection. US500 and US100 may be plan- or rate-limited and retain structured provider responses. V4 is now defined by strategy versioning, stored-candle backtesting, data readiness, required-timeframe collection, statistical summaries, first-level research intelligence, and a safe signal-scoring foundation. Advanced ML and execution remain out of scope.
+
+## V4.2 continuation
+
+V4.2 builds on V4.1 evidence readiness by adding deterministic feature, market-condition, and pattern research plus durable Research Lab experiments. V4.1 readiness and evidence thresholds remain the gate; V4.2 does not invent conclusions when stored candles or completed backtests are insufficient.

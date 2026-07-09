@@ -450,6 +450,18 @@
 .research-intelligence span { padding: 6px; border: 1px solid var(--border-soft); background: #0a0f17; color: var(--subtle); font-size: 8px; text-transform: uppercase; }
 .research-intelligence strong { display: block; margin-top: 3px; color: var(--text); font-size: 9px; text-transform: none; }
 .research-intelligence .wide { grid-column: 1 / -1; }
+.pattern-discovery { grid-template-columns: repeat(6, minmax(100px, 1fr)); }
+.research-lab { padding-top: 2px; border-top: 1px solid var(--border-soft); }
+.research-lab-controls { display: flex; align-items: end; gap: 6px; margin-bottom: 6px; }
+.research-lab-controls label { min-width: 240px; display: flex; flex-direction: column; gap: 3px; color: var(--subtle); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.research-lab-controls select, .research-lab-controls button { min-height: 28px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 3px; background: #101722; color: var(--text); font-size: 9px; }
+.research-lab-controls button { border-color: #35577d; background: #13243a; color: #d8eaff; }
+.research-experiments { max-height: 135px; }
+.research-experiments table { min-width: 620px; }
+.research-experiments tbody tr { cursor: pointer; }
+.research-experiments .selected-row { background: #142039; }
+.research-experiment-results { max-height: 130px; margin-bottom: 8px; }
+.research-experiment-results table { min-width: 620px; }
 .direction-badge { min-width: 48px; padding: 4px 7px; border: 1px solid #725b2d; border-radius: 3px; color: var(--warning); font-size: 9px; font-weight: 850; text-align: center; letter-spacing: .08em; }
 .direction-badge.direction-buy { border-color: #267b65; background: rgba(45, 212, 167, .08); color: var(--positive); }
 .direction-badge.direction-sell { border-color: #793640; background: rgba(240, 91, 105, .08); color: var(--negative); }

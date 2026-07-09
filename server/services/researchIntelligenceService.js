@@ -1,6 +1,7 @@
 const pool = require("../db/connection");
 const { getInstrument } = require("../market/instrumentRegistry");
 const strategyRegistry = require("./strategyRegistryService");
+const lab = require("./researchLabService");
 
 const serviceError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 const round = (value, digits = 2) => Number(Number(value).toFixed(digits));
@@ -46,7 +47,30 @@ const getResearchIntelligence = async ({ strategy_version_id, symbol } = {}) => 
   const enough = symbols.filter((item) => item.completed_setups >= 10);
   const ranked = [...enough].sort((a, b) => Number(b.average_r) - Number(a.average_r));
   const completedSetups = symbols.reduce((sum, item) => sum + item.completed_setups, 0);
-  return { strategy_version_id: strategyId, symbol: normalizedSymbol, overall_status: completedSetups >= 10 ? "evidence_available" : "insufficient_data", evidence_status: completedSetups >= 10 ? "preliminary" : "insufficient_data", completed_setups: completedSetups, symbols, best_performing_symbols: ranked.length ? [ranked[0].symbol] : [], weakest_performing_symbols: ranked.length > 1 ? [ranked[ranked.length - 1].symbol] : [], warnings: completedSetups < 10 ? ["Insufficient completed backtest evidence."] : [], scoring_foundation: { technical_score: "existing", historical_evidence_score: "nullable_from_completed_backtests", risk_score: "future", market_condition_score: "future", final_confidence_score: "future" } };
+  const conditionPerformance = await getConditionPerformance({ strategyId, symbol: normalizedSymbol });
+  return { strategy_version_id: strategyId, symbol: normalizedSymbol, overall_status: completedSetups >= 10 ? "evidence_available" : "insufficient_data", evidence_status: completedSetups >= 10 ? "preliminary" : "insufficient_data", completed_setups: completedSetups, symbols, condition_performance: conditionPerformance, best_performing_symbols: ranked.length ? [ranked[0].symbol] : [], weakest_performing_symbols: ranked.length > 1 ? [ranked[ranked.length - 1].symbol] : [], warnings: completedSetups < 10 ? ["Insufficient completed backtest evidence."] : [], scoring_foundation: { technical_score: "existing", historical_evidence_score: "nullable_from_completed_backtests", risk_score: "future", market_condition_score: conditionPerformance.status === "available" ? "research_only" : null, final_confidence_score: "future" } };
+};
+
+const getConditionPerformance = async ({ strategyId, symbol }) => {
+  const result = await pool.query(`SELECT br.symbol,br.strategy_version_id,sv.version strategy_version,br.setup_time,br.final_r,br.requires_review
+    FROM backtest_results br JOIN strategy_versions sv ON sv.id=br.strategy_version_id
+    WHERE br.final_r IS NOT NULL AND ($1::bigint IS NULL OR br.strategy_version_id=$1) AND ($2::text IS NULL OR br.symbol=$2)
+    ORDER BY br.symbol,br.setup_time`, [strategyId, symbol]);
+  if (!result.rows.length) return { status: "insufficient_data", groups: [], reason: "No completed backtest results can be linked to stored-candle conditions." };
+  const groups = new Map();
+  for (const row of result.rows) {
+    const research = await lab.getConditions({ symbol: row.symbol, timeframe: "H1", date_to: row.setup_time });
+    const condition = research.market_condition.condition;
+    if (condition === "insufficient_data") continue;
+    const key = `${row.symbol}:${row.strategy_version_id}:${condition}`;
+    if (!groups.has(key)) groups.set(key, { symbol: row.symbol, strategy_version: row.strategy_version, market_condition: condition, setups_found: 0, completed_setups: 0, wins: 0, total_r: 0, requires_review_count: 0 });
+    const group = groups.get(key); group.setups_found += 1; group.completed_setups += 1; group.total_r += Number(row.final_r); group.wins += Number(row.final_r) > 0 ? 1 : 0; group.requires_review_count += row.requires_review ? 1 : 0;
+  }
+  const summarized = [...groups.values()].map((group) => {
+    const averageR = round(group.total_r / group.completed_setups, 4), enough = group.completed_setups >= 10;
+    return { ...group, win_rate: round(group.wins * 100 / group.completed_setups, 2), average_r: averageR, total_r: round(group.total_r, 4), recommendation: !enough ? "insufficient_data" : averageR > 0 ? "promising" : "needs_adjustment", reason: !enough ? `Only ${group.completed_setups} linked completed setups; at least 10 are required.` : averageR > 0 ? "Positive average R in this condition with enough completed setups." : "Non-positive average R in this condition." };
+  });
+  return summarized.length ? { status: "available", groups: summarized } : { status: "insufficient_data", groups: [], reason: "Stored candles were insufficient at backtest setup times." };
 };
 
 module.exports = { getResearchIntelligence };
