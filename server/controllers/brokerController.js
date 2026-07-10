@@ -1,0 +1,41 @@
+const { importCandles } = require("../services/mt5BrokerImportService");
+const { getSymbolMap } = require("../services/mt5SymbolMapService");
+
+const requireBridgeSecret = (req, res) => {
+  const expected = process.env.MT5_BRIDGE_SECRET;
+  const provided = req.get("x-mt5-bridge-secret");
+
+  if (!expected || !provided || provided !== expected) {
+    res.status(401).json({
+      success: false,
+      error: "Missing or invalid MT5 bridge secret",
+    });
+    return false;
+  }
+
+  return true;
+};
+
+const importMt5Candles = async (req, res) => {
+  if (!requireBridgeSecret(req, res)) return;
+
+  try {
+    const summary = await importCandles(req.body || {});
+    res.status(201).json({ success: true, import: summary });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message,
+      details: error.details || null,
+    });
+  }
+};
+
+const getMt5SymbolMap = (_req, res) => {
+  res.json({ success: true, symbol_map: getSymbolMap() });
+};
+
+module.exports = {
+  getMt5SymbolMap,
+  importMt5Candles,
+};

@@ -35,7 +35,9 @@ const validateTimeframe = (timeframe) => {
   }
 };
 
-const insertCandle = async (db, assetId, timeframe, candle) => {
+const insertCandle = async (db, assetId, timeframe, candle, options = {}) => {
+  const source = options.source || "twelve_direct";
+  const brokerSymbol = options.brokerSymbol || null;
   const saved = await db.query(
     `
         INSERT INTO candles
@@ -47,17 +49,21 @@ const insertCandle = async (db, assetId, timeframe, candle) => {
             low,
             close,
             volume,
-            candle_time
+            candle_time,
+            source,
+            broker_symbol
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (asset_id, timeframe, candle_time)
         DO UPDATE SET
             open = EXCLUDED.open,
             high = EXCLUDED.high,
             low = EXCLUDED.low,
             close = EXCLUDED.close,
-            volume = EXCLUDED.volume
-        RETURNING *
+            volume = EXCLUDED.volume,
+            source = EXCLUDED.source,
+            broker_symbol = EXCLUDED.broker_symbol
+        RETURNING *, (xmax = 0) AS inserted
         `,
     [
       assetId,
@@ -68,6 +74,8 @@ const insertCandle = async (db, assetId, timeframe, candle) => {
       candle.close,
       candle.volume || 0,
       candle.candle_time,
+      source,
+      brokerSymbol,
     ],
   );
 
@@ -120,6 +128,7 @@ const collectCandlesForAsset = async (symbol, timeframe) => {
         asset.id,
         timeframe,
         candle,
+        { source: "twelve_direct" },
       );
       savedCandles.push(savedCandle);
     }
@@ -142,5 +151,8 @@ const collectCandlesForAsset = async (symbol, timeframe) => {
 
 module.exports = {
   collectCandlesForAsset,
+  insertCandle,
   saveCandle,
+  validateTimeframe,
+  getAssetBySymbol,
 };

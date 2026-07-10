@@ -19,6 +19,7 @@ const journalRoutes = require("./routes/journalRoutes");
 const strategyRoutes = require("./routes/strategyRoutes");
 const backtestRoutes = require("./routes/backtestRoutes");
 const researchRoutes = require("./routes/researchRoutes");
+const brokerRoutes = require("./routes/brokerRoutes");
 
 const app = express();
 
@@ -42,6 +43,7 @@ app.use("/api/journal", journalRoutes);
 app.use("/api/strategies", strategyRoutes);
 app.use("/api/backtests", backtestRoutes);
 app.use("/api/research", researchRoutes);
+app.use("/api/broker", brokerRoutes);
 app.use("/api", systemRoutes);
 
 const PORT = process.env.PORT || 5000;
