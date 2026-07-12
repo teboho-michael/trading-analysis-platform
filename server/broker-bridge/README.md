@@ -1,8 +1,8 @@
 # MT5 broker bridge
 
-This read-only Python service requires desktop MetaTrader 5; MT5 mobile cannot host the Python integration. The intended setup is a Windows VPS running XM MT5 desktop and this bridge. Linux development can continue with `MARKET_PROVIDER=twelve`.
+This read-only Python service requires desktop MetaTrader 5; MT5 mobile cannot host the Python integration. The intended setup is a Windows VPS running XM MT5 desktop and this bridge. V5.1 uses MT5 broker data as the only active market-data source.
 
-Broker mode works only after the VPS, terminal, account, and bridge are configured. Errors are explicit and no candles are fabricated. The bridge contains no order or trade-execution functions.
+Broker mode works only after the VPS, terminal, account, and bridge are configured. Errors are explicit and no candles are fabricated. The bridge contains no order-management functions.
 
 Environment variables (documentation only):
 

@@ -51,10 +51,10 @@ export default function TradingChartPanel({
 
       onDataCollected();
     } catch (error) {
-      const providerRateLimited = error.response?.data?.status === "rate_limited";
+      const mt5Unavailable = ["awaiting_mt5_sync", "stale_mt5_data", "unavailable"].includes(error.response?.data?.status);
       setMessage(
-        providerRateLimited
-          ? "Provider rate limit reached. Wait and retry collection."
+        mt5Unavailable
+          ? "MT5 broker data is unavailable or stale. Check the VPS bridge sync."
           : error.response?.data?.error ||
           error.response?.data?.message ||
           "Failed to collect market data.",
@@ -121,9 +121,9 @@ export default function TradingChartPanel({
         </p>
       )}
 
-      {liveQuote?.status === "rate_limited" && !message && (
+      {["awaiting_mt5_sync", "stale_mt5_data", "unavailable"].includes(liveQuote?.status) && !message && (
         <p className="status-message error" role="status">
-          Insufficient data — provider rate limited.
+          MT5 broker price unavailable or stale.
         </p>
       )}
 

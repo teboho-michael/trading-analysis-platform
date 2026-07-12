@@ -4,6 +4,7 @@ const {
   validateCandle,
   validateProviderCandles,
 } = require("./candleValidator");
+const { MT5_SOURCE } = require("../services/mt5EvidencePolicy");
 
 const VALID_TIMEFRAMES = new Set(["H1", "H4", "D1"]);
 
@@ -36,7 +37,7 @@ const validateTimeframe = (timeframe) => {
 };
 
 const insertCandle = async (db, assetId, timeframe, candle, options = {}) => {
-  const source = options.source || "twelve_direct";
+  const source = options.source || MT5_SOURCE;
   const brokerSymbol = options.brokerSymbol || null;
   const saved = await db.query(
     `
@@ -128,7 +129,7 @@ const collectCandlesForAsset = async (symbol, timeframe) => {
         asset.id,
         timeframe,
         candle,
-        { source: "twelve_direct" },
+        { source: MT5_SOURCE, brokerSymbol: candle.source_symbol || null },
       );
       savedCandles.push(savedCandle);
     }
@@ -144,6 +145,7 @@ const collectCandlesForAsset = async (symbol, timeframe) => {
   return {
     symbol,
     timeframe,
+    data_source: MT5_SOURCE,
     candlesSaved: savedCandles.length,
     candles: savedCandles,
   };

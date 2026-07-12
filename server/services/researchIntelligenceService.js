@@ -2,6 +2,7 @@ const pool = require("../db/connection");
 const { getInstrument } = require("../market/instrumentRegistry");
 const strategyRegistry = require("./strategyRegistryService");
 const lab = require("./researchLabService");
+const { sourceMetadataForScope, evidencePolicy } = require("./mt5EvidencePolicy");
 
 const serviceError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 const round = (value, digits = 2) => Number(Number(value).toFixed(digits));
@@ -48,7 +49,8 @@ const getResearchIntelligence = async ({ strategy_version_id, symbol } = {}) => 
   const ranked = [...enough].sort((a, b) => Number(b.average_r) - Number(a.average_r));
   const completedSetups = symbols.reduce((sum, item) => sum + item.completed_setups, 0);
   const conditionPerformance = await getConditionPerformance({ strategyId, symbol: normalizedSymbol });
-  return { strategy_version_id: strategyId, symbol: normalizedSymbol, overall_status: completedSetups >= 10 ? "evidence_available" : "insufficient_data", evidence_status: completedSetups >= 10 ? "preliminary" : "insufficient_data", completed_setups: completedSetups, symbols, condition_performance: conditionPerformance, best_performing_symbols: ranked.length ? [ranked[0].symbol] : [], weakest_performing_symbols: ranked.length > 1 ? [ranked[ranked.length - 1].symbol] : [], warnings: completedSetups < 10 ? ["Insufficient completed backtest evidence."] : [], scoring_foundation: { technical_score: "existing", historical_evidence_score: "nullable_from_completed_backtests", risk_score: "future", market_condition_score: conditionPerformance.status === "available" ? "research_only" : null, final_confidence_score: "future" } };
+  const sourceMetadata = await sourceMetadataForScope({ symbol: normalizedSymbol });
+  return { strategy_version_id: strategyId, symbol: normalizedSymbol, overall_status: completedSetups >= 10 ? "evidence_available" : "insufficient_data", evidence_status: completedSetups >= 10 ? "preliminary" : "insufficient_data", completed_setups: completedSetups, symbols, condition_performance: conditionPerformance, best_performing_symbols: ranked.length ? [ranked[0].symbol] : [], weakest_performing_symbols: ranked.length > 1 ? [ranked[ranked.length - 1].symbol] : [], warnings: completedSetups < 10 ? ["Insufficient completed MT5 backtest evidence."] : [], scoring_foundation: { technical_score: "existing", historical_evidence_score: "mt5_only_completed_backtests", risk_score: "future", market_condition_score: conditionPerformance.status === "available" ? "research_only" : null, final_confidence_score: "future" }, ...sourceMetadata, ...evidencePolicy() };
 };
 
 const getConditionPerformance = async ({ strategyId, symbol }) => {

@@ -13,6 +13,7 @@ const { getActiveZone, saveDetectedZone } = require("../services/zoneService");
 const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
 const { createAlertEvent, recordSetupStage, recordMarketState } = require("../services/alertService");
 const { beginScan, completeScan, failScan } = require("./scanState");
+const { MT5_SOURCE } = require("../services/mt5EvidencePolicy");
 
 const getProviderRequestDelay = () => {
   return Number(process.env.PROVIDER_REQUEST_DELAY_MS || 10000);
@@ -34,8 +35,8 @@ const wait = (ms) => {
   return new Promise((resolve) => setTimeout(resolve, ms));
 };
 
-const isRateLimitError = (error) => {
-  return error.message && error.message.includes("RATE_LIMIT");
+const isTemporaryMt5Error = (error) => {
+  return error.message && error.message.includes("MT5_BRIDGE_ERROR");
 };
 
 const collectCandlesWithRetry = async (symbol, timeframe) => {
@@ -47,12 +48,12 @@ const collectCandlesWithRetry = async (symbol, timeframe) => {
     } catch (error) {
       const isLastAttempt = attempt === maxRetries;
 
-      if (!isRateLimitError(error) || isLastAttempt) {
+      if (!isTemporaryMt5Error(error) || isLastAttempt) {
         throw error;
       }
 
       console.log(
-        `Rate limit hit for ${symbol} ${timeframe}. Waiting before retry ${attempt + 1}/${maxRetries}...`,
+        `MT5 bridge unavailable for ${symbol} ${timeframe}. Waiting before retry ${attempt + 1}/${maxRetries}...`,
       );
 
       await wait(getProviderRetryDelay());
@@ -80,10 +81,11 @@ const fetchCandles = async (assetId, timeframe) => {
         FROM candles
         WHERE asset_id = $1
         AND timeframe = $2
+        AND source = $3
         ORDER BY candle_time DESC
         LIMIT 300
         `,
-    [assetId, timeframe],
+    [assetId, timeframe, MT5_SOURCE],
   );
 
   return result.rows;

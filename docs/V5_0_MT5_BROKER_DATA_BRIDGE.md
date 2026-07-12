@@ -27,12 +27,12 @@ The Linux platform remains the main application. The Windows VPS is only a read-
 
 ## Data Sources
 
-The platform now distinguishes these candle sources:
+Historical V5.0 note: the platform introduced source-attributed candle storage:
 
-- `twelve_direct`
 - `mt5_broker`
+- legacy non-MT5 rows from earlier versions
 
-Twelve Data remains available through the existing collection path. MT5 broker imports use the new broker import endpoint and write broker-attributed candles into the same stored-candle system.
+V5.1 supersedes V5.0 by making `mt5_broker` the only active market-data source. Legacy non-MT5 rows may remain in the database for audit or explicit purge workflows, but they do not qualify as research-ready evidence.
 
 ## Required Environment
 

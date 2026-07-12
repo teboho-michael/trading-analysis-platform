@@ -44,10 +44,15 @@ app.use("/api/strategies", strategyRoutes);
 app.use("/api/backtests", backtestRoutes);
 app.use("/api/research", researchRoutes);
 app.use("/api/broker", brokerRoutes);
+app.use("/api/system", systemRoutes);
 app.use("/api", systemRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;

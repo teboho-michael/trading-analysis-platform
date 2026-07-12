@@ -7,3 +7,7 @@ dist/
 
 *.log
 .DS_Store
+*.local.json
+mt5_bridge_state.json
+deployment/windows-vps/logs/
+deployment/windows-vps/backups/

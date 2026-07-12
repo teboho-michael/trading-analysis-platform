@@ -4,6 +4,7 @@ const { getInstrument } = require("../market/instrumentRegistry");
 const { calculateFeatures, INSUFFICIENT_DATA } = require("./featureEngineeringService");
 const { classifyMarketCondition, classifyTrendVsMeanReversion } = require("./marketConditionService");
 const { discoverPatterns } = require("./patternDiscoveryService");
+const { MT5_SOURCE, sourceMetadataForScope, evidencePolicy } = require("./mt5EvidencePolicy");
 
 const SUPPORTED_TIMEFRAMES = new Set(["D1", "H4", "H1"]);
 const SUPPORTED_EXPERIMENTS = new Set(["condition_analysis", "feature_analysis", "timeframe_readiness", "strategy_comparison", "parameter_comparison"]);
@@ -41,8 +42,10 @@ const loadStoredCandles = async ({ symbol, timeframe, date_from, date_to, limit 
   const result = await queryable.query(`SELECT * FROM (SELECT c.open,c.high,c.low,c.close,c.volume,c.candle_time
     FROM candles c JOIN assets a ON a.id=c.asset_id WHERE a.symbol=$1 AND c.timeframe=$2
       AND ($3::timestamp IS NULL OR c.candle_time <= $3)
-    ORDER BY c.candle_time DESC LIMIT $4) stored ORDER BY candle_time ASC`, [normalizedSymbol, normalizedTimeframe, dateTo, limit]);
-  return { symbol: normalizedSymbol, timeframe: normalizedTimeframe, dateFrom, dateTo, candles: result.rows };
+      AND c.source=$5
+    ORDER BY c.candle_time DESC LIMIT $4) stored ORDER BY candle_time ASC`, [normalizedSymbol, normalizedTimeframe, dateTo, limit, MT5_SOURCE]);
+  const sourceMetadata = await sourceMetadataForScope({ symbol: normalizedSymbol, timeframe: normalizedTimeframe, dateTo }, queryable);
+  return { symbol: normalizedSymbol, timeframe: normalizedTimeframe, dateFrom, dateTo, candles: result.rows, sourceMetadata };
 };
 
 const getConditions = async (input = {}) => {
@@ -56,9 +59,11 @@ const getConditions = async (input = {}) => {
     status: condition.condition === INSUFFICIENT_DATA ? INSUFFICIENT_DATA : "available",
     symbol: loaded.symbol, timeframe: loaded.timeframe,
     requested_range: { date_from: loaded.dateFrom, date_to: loaded.dateTo },
-    candle_evidence: { available: engineered.available_candles, required: engineered.required_candles, earliest: loaded.candles[0]?.candle_time || null, latest: loaded.candles.at(-1)?.candle_time || null },
+    candle_evidence: { available: engineered.available_candles, required: engineered.required_candles, earliest: loaded.candles[0]?.candle_time || null, latest: loaded.candles.at(-1)?.candle_time || null, ...loaded.sourceMetadata },
     features_summary: feature || { status: INSUFFICIENT_DATA }, market_condition: condition, pattern_labels: patterns, trend_vs_mean_reversion: behavior,
     research_only: true,
+    ...loaded.sourceMetadata,
+    ...evidencePolicy(),
   };
 };
 
@@ -81,24 +86,25 @@ const conditionAnalysis = async (request) => {
     if (label !== INSUFFICIENT_DATA) counts[label] = (counts[label] || 0) + 1;
   }
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-  return { status: total ? "completed" : INSUFFICIENT_DATA, summary: { classified_candles: total, condition_counts: counts }, metrics: Object.entries(counts).map(([name, value]) => ({ metric_name: `condition_${name}`, metric_value: value, details: { percentage: round(value * 100 / total, 2) } })) };
+  return { status: total ? "completed" : INSUFFICIENT_DATA, summary: { classified_candles: total, condition_counts: counts, ...loaded.sourceMetadata, ...evidencePolicy() }, metrics: Object.entries(counts).map(([name, value]) => ({ metric_name: `condition_${name}`, metric_value: value, details: { percentage: round(value * 100 / total, 2), ...loaded.sourceMetadata } })) };
 };
 
 const featureAnalysis = async (request) => {
   const loaded = await loadStoredCandles(request), engineered = calculateFeatures(loaded.candles);
   const series = engineered.series.filter((feature) => (!loaded.dateFrom || new Date(feature.candle_time) >= loaded.dateFrom) && finite(feature.candle_range) && finite(feature.volatility_proxy) && feature.overextension_basic !== INSUFFICIENT_DATA && feature.choppy_basic !== INSUFFICIENT_DATA);
-  if (!series.length) return { status: INSUFFICIENT_DATA, summary: { reason: "No complete feature rows exist in the requested range." }, metrics: [] };
+  if (!series.length) return { status: INSUFFICIENT_DATA, summary: { reason: "No complete MT5 feature rows exist in the requested range.", ...loaded.sourceMetadata, ...evidencePolicy() }, metrics: [] };
   const averageRange = series.reduce((sum, item) => sum + Number(item.candle_range), 0) / series.length;
   const overextensionCount = series.filter((item) => item.overextension_basic).length, choppyCount = series.filter((item) => item.choppy_basic).length;
-  return { status: "completed", summary: { feature_rows: series.length, average_range: round(averageRange), overextension_count: overextensionCount, choppy_count: choppyCount }, metrics: [{ metric_name: "average_range", metric_value: round(averageRange) }, { metric_name: "overextension_count", metric_value: overextensionCount }, { metric_name: "choppy_count", metric_value: choppyCount }] };
+  return { status: "completed", summary: { feature_rows: series.length, average_range: round(averageRange), overextension_count: overextensionCount, choppy_count: choppyCount, ...loaded.sourceMetadata, ...evidencePolicy() }, metrics: [{ metric_name: "average_range", metric_value: round(averageRange) }, { metric_name: "overextension_count", metric_value: overextensionCount }, { metric_name: "choppy_count", metric_value: choppyCount }] };
 };
 
 const timeframeReadiness = async (request) => {
   const symbol = validateSymbol(request.symbol), { dateFrom, dateTo } = validateDates(request);
   const result = await pool.query(`SELECT c.timeframe,COUNT(*)::int available,MIN(c.candle_time) earliest,MAX(c.candle_time) latest FROM candles c JOIN assets a ON a.id=c.asset_id
-    WHERE a.symbol=$1 AND c.timeframe=ANY($2) AND ($3::timestamp IS NULL OR c.candle_time <= $3) GROUP BY c.timeframe`, [symbol, ["D1", "H4", "H1"], dateTo]);
+    WHERE a.symbol=$1 AND c.timeframe=ANY($2) AND ($3::timestamp IS NULL OR c.candle_time <= $3) AND c.source=$4 GROUP BY c.timeframe`, [symbol, ["D1", "H4", "H1"], dateTo, MT5_SOURCE]);
+  const sourceMetadata = await sourceMetadataForScope({ symbol, dateTo });
   const rows = ["D1", "H4", "H1"].map((timeframe) => { const row = result.rows.find((item) => item.timeframe === timeframe); return { timeframe, available: row?.available || 0, required: 201, ready: (row?.available || 0) >= 201, earliest: row?.earliest || null, latest: row?.latest || null }; });
-  return { status: rows.some((row) => row.available) ? "completed" : INSUFFICIENT_DATA, summary: { symbol, date_from: dateFrom, date_to: dateTo, timeframes: rows }, metrics: rows.map((row) => ({ metric_name: `${row.timeframe.toLowerCase()}_available_candles`, metric_value: row.available, timeframe: row.timeframe, details: row })) };
+  return { status: rows.some((row) => row.available) ? "completed" : INSUFFICIENT_DATA, summary: { symbol, date_from: dateFrom, date_to: dateTo, timeframes: rows, ...sourceMetadata, ...evidencePolicy() }, metrics: rows.map((row) => ({ metric_name: `${row.timeframe.toLowerCase()}_available_candles`, metric_value: row.available, timeframe: row.timeframe, details: { ...row, ...sourceMetadata } })) };
 };
 
 const strategyComparison = async (request) => {
@@ -114,8 +120,8 @@ const strategyComparison = async (request) => {
 
 const parameterComparison = async (request) => {
   const loaded = await loadStoredCandles(request), ema100 = calculateFeatures(loaded.candles, { emaPeriod: 100 }), ema200 = calculateFeatures(loaded.candles, { emaPeriod: 200 });
-  if (ema200.status === INSUFFICIENT_DATA) return { status: INSUFFICIENT_DATA, summary: { reason: "EMA 200 comparison requires at least 200 stored candles.", ema_100_status: ema100.status, ema_200_status: ema200.status }, metrics: [] };
-  return { status: "completed", summary: { scope: "feature_readiness_only", live_strategy_unchanged: true, ema_100: ema100.latest.ema, ema_200: ema200.latest.ema, ema_100_distance: ema100.latest.distance_from_ema, ema_200_distance: ema200.latest.distance_from_ema }, metrics: [{ metric_name: "ema_100", metric_value: ema100.latest.ema }, { metric_name: "ema_200", metric_value: ema200.latest.ema }, { metric_name: "ema_100_distance", metric_value: ema100.latest.distance_from_ema }, { metric_name: "ema_200_distance", metric_value: ema200.latest.distance_from_ema }] };
+  if (ema200.status === INSUFFICIENT_DATA) return { status: INSUFFICIENT_DATA, summary: { reason: "EMA 200 comparison requires at least 200 MT5 broker candles.", ema_100_status: ema100.status, ema_200_status: ema200.status, ...loaded.sourceMetadata, ...evidencePolicy() }, metrics: [] };
+  return { status: "completed", summary: { scope: "feature_readiness_only", live_strategy_unchanged: true, ema_100: ema100.latest.ema, ema_200: ema200.latest.ema, ema_100_distance: ema100.latest.distance_from_ema, ema_200_distance: ema200.latest.distance_from_ema, ...loaded.sourceMetadata, ...evidencePolicy() }, metrics: [{ metric_name: "ema_100", metric_value: ema100.latest.ema }, { metric_name: "ema_200", metric_value: ema200.latest.ema }, { metric_name: "ema_100_distance", metric_value: ema100.latest.distance_from_ema }, { metric_name: "ema_200_distance", metric_value: ema200.latest.distance_from_ema }] };
 };
 
 const executeExperiment = (request) => ({ condition_analysis: conditionAnalysis, feature_analysis: featureAnalysis, timeframe_readiness: timeframeReadiness, strategy_comparison: strategyComparison, parameter_comparison: parameterComparison }[request.experiment_type](request));

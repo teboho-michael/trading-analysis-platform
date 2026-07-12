@@ -7,7 +7,10 @@
     "start": "node app.js",
     "dev": "nodemon app.js",
     "reset:market-data": "node scripts/resetMarketData.js",
-    "verify:candles": "node scripts/verifyCandles.js"
+    "verify:candles": "node scripts/verifyCandles.js",
+    "audit:candle-sources": "node scripts/auditCandleSources.js",
+    "purge:non-mt5:dry-run": "node scripts/purgeNonMt5Candles.js",
+    "purge:non-mt5:confirm": "node scripts/purgeNonMt5Candles.js --confirm-delete-non-mt5"
   },
   "keywords": [],
   "author": "",

@@ -8,7 +8,7 @@ V4.0 established versioned strategies and honest stored-candle backtests, but a 
 
 `supply_demand_ema_200` v1 declares D1 `bias_context`, H4 `zone_context`, and H1 `execution_confirmation`, each requiring 201 stored candles. The readiness service counts real database rows through the requested end date and returns count, earliest/latest timestamps, roles, and missing timeframes.
 
-`POST /api/backtests/collect-required` checks readiness, skips ready timeframes, and reuses the provider-backed collector for missing D1/H4/H1 data. Per-timeframe outcomes are `already_ready`, `collected`, `partially_collected`, `rate_limited`, `plan_limited`, or `failed`. Direct provider symbols are preserved; no proxy or fabricated data is used.
+Historical V4 behavior: `POST /api/backtests/collect-required` checked readiness, skipped ready timeframes, and reused the then-active provider-backed collector for missing D1/H4/H1 data. V5.1 supersedes this with MT5-only evidence and MT5 sync/stale failure states. Direct symbols are preserved; no proxy or fabricated data is used.
 
 ## Backtest preflight and statistics
 
@@ -33,7 +33,7 @@ The compact Research tab shows D1/H4/H1 readiness, provider limitation messages,
 
 ## Provider limitations and final V4 definition
 
-BTCUSD, XAUUSD, and USDJPY attempt real Twelve Data collection. US500 and US100 may be plan- or rate-limited and retain structured provider responses. V4 is now defined by strategy versioning, stored-candle backtesting, data readiness, required-timeframe collection, statistical summaries, first-level research intelligence, and a safe signal-scoring foundation. Advanced ML and execution remain out of scope.
+Historical V4 note: this version used an external market-data provider. V5.1 supersedes that architecture: active readiness, backtesting, research intelligence, and future evidence calculations now require `source = mt5_broker`. V4 is defined by strategy versioning, stored-candle backtesting, data readiness, required-timeframe collection, statistical summaries, first-level research intelligence, and a safe signal-scoring foundation. Advanced ML and broker actions remain out of scope.
 
 ## V4.2 continuation
 

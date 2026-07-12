@@ -196,7 +196,7 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
         <AnalysisRow label="Analysis symbol" value={metadata.analysisProviderSymbol || metadata.providerSymbol || "—"} />
         <AnalysisRow label="Data mode" value={metadata.dataModeLabel || "Direct market data"} />
         <AnalysisRow label="Sync status" value={metadata.syncStatus || "Aligned"} />
-        <AnalysisRow label="Provider" value={metadata.dataSourceLabel || "Twelve Data"} />
+        <AnalysisRow label="Provider" value={metadata.dataSourceLabel || "MT5 Broker"} />
         <AnalysisRow label="Broker mapping" value="Pending MT5/VPS" />
         <p className={`alignment-line alignment-${classToken(metadata.priceScaleMode || "direct")}`}>{getAlignmentMessage(metadata)}</p>
       </section>

@@ -6,6 +6,7 @@ const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
 const { getInstrument } = require("../market/instrumentRegistry");
 const strategyRegistry = require("./strategyRegistryService");
 const readinessService = require("./candleReadinessService");
+const { MT5_SOURCE, sourceMetadataForScope, evidencePolicy } = require("./mt5EvidencePolicy");
 
 const SUPPORTED_TIMEFRAMES = new Set(["H1"]);
 const REQUIRED_TREND_CANDLES = 201;
@@ -37,8 +38,8 @@ const validateRequest = (input = {}) => {
 const loadHistoricalCandles = async (symbol, _timeframe, dateFrom, dateTo, queryable = pool) => {
   const result = await queryable.query(`SELECT c.timeframe,c.open,c.high,c.low,c.close,c.volume,c.candle_time
     FROM candles c JOIN assets a ON a.id=c.asset_id
-    WHERE a.symbol=$1 AND c.timeframe=ANY($2) AND c.candle_time <= $3
-    ORDER BY c.candle_time ASC`, [symbol, ["H1", "H4", "D1"], dateTo]);
+    WHERE a.symbol=$1 AND c.timeframe=ANY($2) AND c.candle_time <= $3 AND c.source=$4
+    ORDER BY c.candle_time ASC`, [symbol, ["H1", "H4", "D1"], dateTo, MT5_SOURCE]);
   const grouped = { H1: [], H4: [], D1: [] };
   for (const candle of result.rows) grouped[candle.timeframe]?.push(candle);
   return { ...grouped, dateFrom, dateTo };
@@ -157,14 +158,15 @@ const runBacktest = async (input = {}) => {
   try {
     const readiness = await readinessService.checkStrategyReadiness({ strategy_version_id: request.strategyVersionId, symbol: request.symbol, date_from: request.dateFrom, date_to: request.dateTo });
     if (!readiness.ready) {
-      const summary = { failure_type: "missing_data", missing_timeframes: readiness.missing_timeframes, readiness, historical_evidence_score: null };
+      const summary = { failure_type: "missing_mt5_data", missing_timeframes: readiness.missing_timeframes, readiness, historical_evidence_score: null, ...evidencePolicy() };
       const message = `Required historical data is missing: ${readiness.missing_timeframes.join(", ")}.`;
       await pool.query("UPDATE backtest_runs SET status='failed',completed_at=CURRENT_TIMESTAMP,result_summary_json=$1::jsonb,error_message=$2 WHERE id=$3", [JSON.stringify(summary), message, runId]);
-      throw serviceError(message, 400, { code: "INSUFFICIENT_CANDLES", readiness, alreadySavedFailure: true });
+      throw serviceError(message, 400, { code: "missing_mt5_data", readiness, alreadySavedFailure: true });
     }
     const candles = await loadHistoricalCandles(request.symbol, request.timeframe, request.dateFrom, request.dateTo);
     const evaluation = evaluateStrategyOnCandles(strategy, candles, request.symbol);
-    const metrics = calculateBacktestMetrics(evaluation.results);
+    const sourceMetadata = await sourceMetadataForScope({ symbol: request.symbol, dateTo: request.dateTo });
+    const metrics = { ...calculateBacktestMetrics(evaluation.results), ...sourceMetadata, ...evidencePolicy() };
     return await saveBacktestRun(runId, request.strategyVersionId, request.symbol, evaluation, metrics);
   } catch (error) {
     if (!error.alreadySavedFailure) await pool.query("UPDATE backtest_runs SET status='failed',completed_at=CURRENT_TIMESTAMP,error_message=$1 WHERE id=$2", [error.message, runId]);

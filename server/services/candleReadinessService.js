@@ -2,6 +2,7 @@ const pool = require("../db/connection");
 const { getInstrument } = require("../market/instrumentRegistry");
 const strategyRegistry = require("./strategyRegistryService");
 const { collectCandlesForAsset } = require("../market/candleCollector");
+const { MT5_SOURCE, sourceMetadataForScope, evidencePolicy } = require("./mt5EvidencePolicy");
 
 const serviceError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 const parseDate = (value, name, endOfDay = false) => {
@@ -29,9 +30,23 @@ const checkSymbolTimeframeReadiness = async ({ symbol, timeframe, date_from, dat
   const { from, to } = validateRange(date_from, date_to);
   const result = await pool.query(`SELECT COUNT(*)::int available,MIN(c.candle_time) earliest,MAX(c.candle_time) latest
     FROM candles c JOIN assets a ON a.id=c.asset_id
-    WHERE a.symbol=$1 AND c.timeframe=$2 AND c.candle_time <= $3`, [normalizedSymbol, normalizedTimeframe, to]);
+    WHERE a.symbol=$1 AND c.timeframe=$2 AND c.candle_time <= $3 AND c.source=$4`, [normalizedSymbol, normalizedTimeframe, to, MT5_SOURCE]);
   const row = result.rows[0], required = Number(minimumCandles);
-  return { timeframe: normalizedTimeframe, required, available: row.available, ready: row.available >= required, earliest: row.earliest, latest: row.latest, requested_date_from: from, requested_date_to: to };
+  const sourceMetadata = await sourceMetadataForScope({ symbol: normalizedSymbol, timeframe: normalizedTimeframe, dateTo: to });
+  const ready = row.available >= required;
+  return {
+    timeframe: normalizedTimeframe,
+    required,
+    available: row.available,
+    ready,
+    status: ready ? "ready" : "missing_mt5_data",
+    missing_reason: ready ? null : "insufficient_data",
+    earliest: row.earliest,
+    latest: row.latest,
+    requested_date_from: from,
+    requested_date_to: to,
+    ...sourceMetadata,
+  };
 };
 
 const checkStrategyReadiness = async ({ strategy_version_id, symbol, date_from, date_to }) => {
@@ -47,7 +62,8 @@ const checkStrategyReadiness = async ({ strategy_version_id, symbol, date_from, 
     role: requirement.role,
   })));
   const missing = requiredTimeframes.filter((item) => !item.ready).map((item) => item.timeframe);
-  return { symbol: normalizedSymbol, strategy_version_id: Number(strategy_version_id), ready: missing.length === 0, required_timeframes: requiredTimeframes, missing_timeframes: missing };
+  const metadata = await sourceMetadataForScope({ symbol: normalizedSymbol });
+  return { symbol: normalizedSymbol, strategy_version_id: Number(strategy_version_id), ready: missing.length === 0, status: missing.length === 0 ? "ready" : "missing_mt5_data", required_timeframes: requiredTimeframes, missing_timeframes: missing, ...metadata, ...evidencePolicy() };
 };
 
 const collectRequiredData = async (input = {}) => {
@@ -60,7 +76,7 @@ const collectRequiredData = async (input = {}) => {
       const after = await checkSymbolTimeframeReadiness({ symbol: before.symbol, timeframe: item.timeframe, date_from: input.date_from, date_to: input.date_to, minimumCandles: item.required });
       statuses.push({ timeframe: item.timeframe, status: after.ready ? "collected" : "partially_collected", candles_saved: collection.candlesSaved, available: after.available, required: after.required });
     } catch (error) {
-      const mapped = error.code === "RATE_LIMIT" ? "rate_limited" : error.code === "PLAN_LIMIT" ? "plan_limited" : "failed";
+      const mapped = error.message?.includes("MT5_BRIDGE_ERROR") ? "awaiting_mt5_sync" : "failed";
       statuses.push({ timeframe: item.timeframe, status: mapped, available: item.available, required: item.required, message: error.message, provider_code: error.code || null });
     }
   }

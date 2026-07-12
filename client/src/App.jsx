@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import TradingChartPanel from "./components/Chart/TradingChartPanel";
 import AnalysisPanel from "./components/Analysis/AnalysisPanel";
 import Watchlist from "./components/Watchlist/Watchlist";
@@ -9,6 +9,7 @@ import LowerTabs from "./components/Workspace/LowerTabs";
 import { useLivePrices } from "./hooks/useLivePrices";
 import { useFormingCandles } from "./hooks/useFormingCandles";
 import { CHART_TIMEFRAMES, getAnalysisTimeframe } from "./config/timeframes";
+import api from "./services/api";
 
 const formatTime = (value) => value ? new Date(value).toLocaleTimeString() : "—";
 const TRACKED_ASSETS = new Set(["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"]);
@@ -27,6 +28,7 @@ function App() {
   const [historyVisible, setHistoryVisible] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
   const [journalRefreshToken, setJournalRefreshToken] = useState(0);
+  const [systemHealth, setSystemHealth] = useState(null);
 
   const { dashboard, loading, error, refreshDashboard } = useDashboard();
   const {
@@ -49,11 +51,28 @@ function App() {
   const selectedLiveQuote = activeLivePrices[selectedAsset];
   const visibleCandles = useFormingCandles(selectedCandles, selectedLiveQuote, selectedAsset, selectedTimeframe, liveMode);
   const latestPrice = selectedLiveQuote?.price ?? visibleCandles.at(-1)?.close;
+  const selectedFreshness = systemHealth?.latest_mt5_candles?.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
+  const selectedStaleWarning = systemHealth?.stale_data_warnings?.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
 
   const handleDataCollected = () => {
     refreshDashboard();
     refreshCandles();
   };
+
+  useEffect(() => {
+    let active = true;
+    const loadHealth = async () => {
+      try {
+        const response = await api.get("/system/health");
+        if (active) setSystemHealth(response.data);
+      } catch (requestError) {
+        if (active) setSystemHealth({ application_status: "degraded", error: requestError.response?.data?.error || requestError.message });
+      }
+    };
+    loadHealth();
+    const timer = window.setInterval(loadHealth, 30000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
 
   if (loading) {
     return (
@@ -82,7 +101,9 @@ function App() {
         </div>
         <div className="live-controls">
           <span className={`connection-state connection-${live.status}`} title={live.error || "Live provider connection status"}>{live.status}</span>
-          <span>Data: {selectedLiveQuote?.dataSource || selectedAssetData?.instrument?.dataSourceLabel || "Unknown"}</span>
+          <span>Data: MT5 Broker</span>
+          <span>Health: {systemHealth?.application_status || "checking"}</span>
+          <span title={selectedStaleWarning?.status || ""}>Fresh: {formatTime(selectedFreshness?.latest_candle_time)}</span>
           <span>Price: {formatTime(live.lastUpdated)}</span>
           <span>Scan: {formatTime(live.lastScan?.lastSuccessfulScanAt)}</span>
           <button type="button" className={liveMode ? "active" : ""} onClick={() => setLiveMode((value) => !value)}>Live mode: {liveMode ? "On" : "Off"}</button>
