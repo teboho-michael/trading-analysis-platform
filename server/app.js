@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 require("dotenv").config();
 
@@ -47,6 +48,14 @@ app.use("/api/broker", brokerRoutes);
 app.use("/api/system", systemRoutes);
 app.use("/api", systemRoutes);
 
+const clientDistPath = path.join(__dirname, "..", "client", "dist");
+
+app.use(express.static(clientDistPath));
+
+app.get(/^(?!\/api(?:\/|$)).*/, (req, res) => {
+  res.sendFile(path.join(clientDistPath, "index.html"));
+});
+
 const PORT = process.env.PORT || 5000;
 
 if (require.main === module) {
@@ -56,4 +65,5 @@ if (require.main === module) {
 }
 
 module.exports = app;
+
 
