@@ -26,7 +26,7 @@ const app = express();
 if (String(process.env.SCAN_SCHEDULER_ENABLED).toLowerCase() === "true") startMarketScanner();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 app.use("/api/assets", assetRoutes);
 app.use("/api/candles", candleRoutes);
@@ -56,3 +56,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+

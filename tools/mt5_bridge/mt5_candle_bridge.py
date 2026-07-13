@@ -29,7 +29,7 @@ DEFAULT_CANDLE_LIMIT = 500
 
 SYMBOL_MAP = {
     "BTCUSD": ["BTCUSD", "Bitcoin", "BTCUSD.", "BTCUSDm"],
-    "XAUUSD": ["Goldmicro", "XAUUSD", "GOLD", "XAUUSD.", "XAUUSDm"],
+    "XAUUSD": ["GOLDmicro", "XAUUSD", "GOLD", "XAUUSD.", "XAUUSDm"],
     "USDJPY": ["USDJPY", "USDJPYm", "USDJPY."],
     "US500": ["US500", "US500Cash", "SP500", "US500m"],
     "US100": ["US100", "US100Cash", "NAS100", "USTEC", "US100m"],
@@ -233,3 +233,4 @@ if __name__ == "__main__":
     except Exception as exc:
         print(exc, flush=True)
         sys.exit(1)
+
