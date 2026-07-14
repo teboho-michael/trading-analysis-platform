@@ -1,5 +1,6 @@
 const pool = require("../db/connection");
 const { getLivePrices } = require("../market/livePriceService");
+const { MT5_SOURCE } = require("./mt5MarketMetadataService");
 
 const OPEN_LIFECYCLE = ["watching", "ready", "triggered", "active", "requires_review"];
 const terminalOutcomes = new Set(["tp1_hit", "tp2_hit", "stopped_out", "invalidated", "expired", "manually_closed"]);
@@ -77,7 +78,8 @@ const getOpenLifecycleEntries = async (filters = {}) => {
 const getMarketData = async (entry) => {
   const result = await pool.query(`SELECT c.high,c.low,c.close,c.candle_time FROM candles c JOIN assets a ON a.id=c.asset_id
     WHERE a.symbol=$1 AND c.timeframe=$2 AND c.candle_time >= $3 AND ($4::timestamp IS NULL OR c.candle_time > $4)
-    ORDER BY c.candle_time ASC LIMIT 500`, [entry.symbol, entry.timeframe || "H1", entry.created_at, entry.lifecycle_last_candle_time]);
+    AND c.source=$5
+    ORDER BY c.candle_time ASC LIMIT 500`, [entry.symbol, entry.timeframe || "H1", entry.created_at, entry.lifecycle_last_candle_time, MT5_SOURCE]);
   let quote = null, quoteError = null;
   try {
     const live = await getLivePrices([entry.symbol]);

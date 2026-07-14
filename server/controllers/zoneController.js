@@ -1,6 +1,7 @@
 const pool = require("../db/connection");
 const { detectZones } = require("../analysis/zoneEngine");
 const { saveDetectedZone } = require("../services/zoneService");
+const { MT5_SOURCE } = require("../services/mt5MarketMetadataService");
 
 const getAllZones = async (req, res) => {
   try {
@@ -60,10 +61,11 @@ const detectAndSaveZones = async (req, res) => {
             FROM candles
             WHERE asset_id = $1
             AND timeframe = $2
+            AND source = $3
             ORDER BY candle_time DESC
             LIMIT 300
             `,
-      [assetId, timeframe],
+      [assetId, timeframe, MT5_SOURCE],
     );
 
     const detectedZones = detectZones(candleResult.rows);

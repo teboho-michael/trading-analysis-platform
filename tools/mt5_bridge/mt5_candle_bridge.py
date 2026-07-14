@@ -28,11 +28,11 @@ DEFAULT_TIMEFRAMES = ["D1", "H4", "H1"]
 DEFAULT_CANDLE_LIMIT = 500
 
 SYMBOL_MAP = {
-    "BTCUSD": ["BTCUSD", "Bitcoin", "BTCUSD.", "BTCUSDm"],
-    "XAUUSD": ["GOLDmicro", "XAUUSD", "GOLD", "XAUUSD.", "XAUUSDm"],
-    "USDJPY": ["USDJPY", "USDJPYm", "USDJPY."],
-    "US500": ["US500", "US500Cash", "SP500", "US500m"],
-    "US100": ["US100", "US100Cash", "NAS100", "USTEC", "US100m"],
+    "BTCUSD": ["BTCUSD"],
+    "XAUUSD": ["GOLDmicro"],
+    "USDJPY": ["USDJPY"],
+    "US500": ["US500Cash"],
+    "US100": ["US100Cash"],
 }
 
 TIMEFRAMES = {
@@ -149,6 +149,7 @@ def with_retries(label: str, action):
 
 
 def sync_symbol_timeframe(platform_symbol: str, timeframe: str, state: dict) -> bool:
+    started_at = utc_now()
     broker_symbol = select_broker_symbol(platform_symbol)
     if not broker_symbol:
         print(f"{platform_symbol}: no visible broker symbol candidate found", flush=True)
@@ -160,6 +161,7 @@ def sync_symbol_timeframe(platform_symbol: str, timeframe: str, state: dict) -> 
         "symbol": platform_symbol,
         "broker_symbol": broker_symbol,
         "timeframe": timeframe,
+        "started_at": started_at,
         "candles": candles,
     }))
     summary = result.get("import", result)
@@ -233,4 +235,3 @@ if __name__ == "__main__":
     except Exception as exc:
         print(exc, flush=True)
         sys.exit(1)
-

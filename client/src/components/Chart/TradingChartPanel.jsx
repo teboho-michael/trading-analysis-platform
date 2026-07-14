@@ -1,12 +1,13 @@
 import { useState } from "react";
 import Chart from "./Chart";
-import TradingViewChart from "./TradingViewChart";
 import ChartToolbar from "./ChartToolbar";
 import { collectMarketData } from "../../services/marketService";
-import { isVisualOnlyTimeframe } from "../../config/timeframes";
+
+const formatDateTime = (value) => value ? new Date(value).toLocaleString() : "—";
 
 export default function TradingChartPanel({
   candles,
+  candleMetadata,
   candlesLoading,
   candlesError,
   selectedAsset,
@@ -16,15 +17,10 @@ export default function TradingChartPanel({
   onDataCollected,
   liveQuote,
   liveStatus,
-  chartMode,
-  onChartModeChange,
 }) {
   const [collecting, setCollecting] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
-  const isVisualOnly = isVisualOnlyTimeframe(selectedTimeframe);
-  const visualOnlyMessage = `${selectedTimeframe} visual only — internal analysis supports H1/H4/D1.`;
-
   const latestPrice = liveQuote?.price ?? candles.at(-1)?.close;
   const isForming = candles.at(-1)?.isForming === true;
   const activeZone =
@@ -35,11 +31,6 @@ export default function TradingChartPanel({
       : null;
 
   const handleCollectData = async () => {
-    if (isVisualOnly) {
-      setMessage(visualOnlyMessage);
-      setMessageType("success");
-      return;
-    }
     try {
       setCollecting(true);
       setMessage("");
@@ -51,7 +42,7 @@ export default function TradingChartPanel({
 
       onDataCollected();
     } catch (error) {
-      const mt5Unavailable = ["awaiting_mt5_sync", "stale_mt5_data", "unavailable"].includes(error.response?.data?.status);
+      const mt5Unavailable = ["awaiting_mt5_candles", "stale_mt5_candles", "unavailable"].includes(error.response?.data?.status);
       setMessage(
         mt5Unavailable
           ? "MT5 broker data is unavailable or stale. Check the VPS bridge sync."
@@ -75,18 +66,23 @@ export default function TradingChartPanel({
 
         <div className="toolbar">
           <ChartToolbar
-            chartMode={chartMode}
-            onChartModeChange={onChartModeChange}
             selectedTimeframe={selectedTimeframe}
             onTimeframeChange={onTimeframeChange}
           />
 
-          {chartMode === "internal" && (
-            <button onClick={handleCollectData} disabled={collecting || isVisualOnly} title={isVisualOnly ? visualOnlyMessage : undefined}>
-              {collecting ? "Collecting..." : "Collect Latest Data"}
-            </button>
-          )}
+          <button onClick={handleCollectData} disabled={collecting}>
+            {collecting ? "Collecting..." : "Collect Latest Data"}
+          </button>
         </div>
+      </div>
+
+      <div className="chart-metadata" aria-live="polite">
+        <span><small>Platform</small><strong>{selectedAsset}</strong></span>
+        <span><small>Broker</small><strong>{candleMetadata?.brokerSymbol || selectedAssetData?.instrument?.brokerSymbol || "—"}</strong></span>
+        <span><small>Timeframe</small><strong>{selectedTimeframe}</strong></span>
+        <span><small>Source</small><strong>XM MT5</strong></span>
+        <span><small>Latest candle</small><strong>{formatDateTime(candleMetadata?.latestStoredCandleTime)}</strong></span>
+        <span><small>Freshness</small><strong>{candleMetadata?.freshness || "checking"}</strong></span>
       </div>
 
       <div className="chart-context" aria-live="polite">
@@ -104,15 +100,11 @@ export default function TradingChartPanel({
           Candle <strong>{isForming ? "Forming · unconfirmed" : "Confirmed history"}</strong>
         </span>
         <span>
-          Live <strong>{liveStatus}</strong>
+          Live <strong>{liveQuote?.status || liveStatus}</strong>
         </span>
         <span>
-          Mode <strong>{chartMode === "tradingview" ? "TradingView terminal" : "Internal analysis"}</strong>
+          Closed <strong>{formatDateTime(candleMetadata?.latestClosedCandleTime)}</strong>
         </span>
-        <span>
-          Strategy <strong>H1 closed candles</strong>
-        </span>
-        {isVisualOnly && <span className="forming-status">{selectedTimeframe} visual only <strong>Analysis uses H1</strong></span>}
       </div>
 
       {message && (
@@ -121,20 +113,13 @@ export default function TradingChartPanel({
         </p>
       )}
 
-      {["awaiting_mt5_sync", "stale_mt5_data", "unavailable"].includes(liveQuote?.status) && !message && (
+      {["awaiting_mt5_tick", "stale_mt5_tick", "unavailable"].includes(liveQuote?.status) && !message && (
         <p className="status-message error" role="status">
-          MT5 broker price unavailable or stale.
+          {liveQuote?.message || "MT5 live tick is unavailable. Latest candle close is shown separately."}
         </p>
       )}
 
-      {chartMode === "tradingview" ? (
-        <TradingViewChart symbol={selectedAsset} timeframe={selectedTimeframe} />
-      ) : isVisualOnly ? (
-        <div className="chart-state" role="status">
-          <strong>This timeframe is visual-only.</strong>
-          <span>Switch to H1 for internal analysis.</span>
-        </div>
-      ) : candlesLoading ? (
+      {candlesLoading ? (
         <div className="chart-state" role="status">
           Loading {selectedAsset} {selectedTimeframe} candles…
         </div>
@@ -152,7 +137,7 @@ export default function TradingChartPanel({
         />
       ) : (
         <div className="chart-state">
-          No candles found for {selectedAsset} {selectedTimeframe}.
+          No MT5 candle data is available for this asset and timeframe.
         </div>
       )}
     </section>

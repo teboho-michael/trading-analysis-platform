@@ -44,7 +44,7 @@ export default function BacktestingResearch({ selectedSymbol }) {
   };
   const collectRequired = async () => {
     setBusy(true); setError("");
-    try { const response = await api.post("/backtests/collect-required", requestParams()); setReadiness(response.data.readiness); const limitations = (response.data.collection_statuses || []).filter((item) => ["awaiting_mt5_sync", "stale_mt5_data", "failed"].includes(item.status)); if (limitations.length) setError(limitations.map((item) => `${item.timeframe}: ${item.message}`).join(" · ")); }
+    try { const response = await api.post("/backtests/collect-required", requestParams()); setReadiness(response.data.readiness); const limitations = (response.data.collection_statuses || []).filter((item) => ["awaiting_mt5_candles", "stale_mt5_candles", "failed"].includes(item.status)); if (limitations.length) setError(limitations.map((item) => `${item.timeframe}: ${item.message}`).join(" · ")); }
     catch (requestError) { setError(requestError.response?.data?.error || "Required data could not be collected."); }
     finally { setBusy(false); }
   };

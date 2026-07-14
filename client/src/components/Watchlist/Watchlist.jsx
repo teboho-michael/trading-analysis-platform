@@ -56,9 +56,7 @@ export default function Watchlist({
               <span className="watchlist-identity">
                 <strong><i className={`live-dot${livePrices?.[symbol] ? " online" : ""}`} aria-hidden="true" />{symbol}</strong>
                 <small>{instrument.name}</small>
-                {asset?.instrument?.isProxy && (
-                  <em>{asset.instrument.proxySymbol} proxy</em>
-                )}
+                {asset?.instrument?.brokerSymbol && <em>{asset.instrument.brokerSymbol}</em>}
               </span>
 
               <span className="watchlist-market-data">

@@ -2,9 +2,9 @@
 
 ## Vision and milestones
 
-The platform is a private, evidence-led systematic trading research environment with honest source attribution, TradingView visual workspace, internal analysis, forward testing, performance review, and later reproducible backtesting. Research and execution remain separate.
+The platform is a private, evidence-led systematic trading research environment with honest source attribution, a native MT5-backed chart workspace, internal analysis, forward testing, performance review, and reproducible backtesting. Research and execution remain separate.
 
-- V3.2: TradingView terminal mode and internal fallback.
+- V3.2: historical external chart mode and internal fallback.
 - V3.3: direct-symbol analysis; no silent index proxies.
 - V3.3.1: provider rate/plan-limit handling.
 - V3.4: forward-test journal foundation.
@@ -53,4 +53,4 @@ Deliberately deferred: ML, automatic optimization, predictive claims, walk-forwa
 
 ## Testing and commit workflow
 
-Apply migrations explicitly. Run server syntax/API checks, candle verification, client lint, and production build (temporary output directory if needed). Verify both chart modes and provider plan-limit behavior. Review diffs and proxy searches before a manual commit. V3.4 is not committed or merged automatically.
+Apply migrations explicitly. Run server syntax/API checks, candle verification, client lint, and production build (temporary output directory if needed). Verify the native MT5 chart, source alignment, and candle freshness behavior. Review diffs and source-safety searches before a manual commit. Work is not committed or merged automatically.

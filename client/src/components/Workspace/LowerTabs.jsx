@@ -6,17 +6,17 @@ import BacktestingResearch from "../Research/BacktestingResearch";
 const TABS = ["Signals", "Zones", "Forward Test Journal", "Performance", "Research", "Alerts", "System"];
 const date = (value) => value ? new Date(value).toLocaleString() : "—";
 
-export default function LowerTabs({ selectedSymbol, collapsed, onToggleCollapsed, journalRefreshToken }) {
+export default function LowerTabs({ selectedSymbol, collapsed, onToggleCollapsed, journalRefreshToken, systemHealth }) {
   const [tab, setTab] = useState("Signals");
-  const [data, setData] = useState({ signals: [], zones: [], alerts: [], health: null, provider: null, performance: { overall: {} } });
+  const [data, setData] = useState({ signals: [], zones: [], alerts: [], performance: { overall: {} } });
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const calls = await Promise.allSettled([api.get("/signals"), api.get("/zones"), api.get("/alerts/history?limit=100"), api.get("/health"), api.get("/provider/status"), api.get("/journal/performance")]);
+      const calls = await Promise.allSettled([api.get("/signals"), api.get("/zones"), api.get("/alerts/history?limit=100"), api.get("/journal/performance")]);
       if (!active) return;
       const payload = (index) => calls[index].status === "fulfilled" ? calls[index].value.data : calls[index].reason.response?.data;
-      setData({ signals: payload(0)?.signals || [], zones: payload(1)?.zones || [], alerts: payload(2)?.alerts || [], health: payload(3), provider: payload(4), performance: payload(5) || { overall: {} } });
+      setData({ signals: payload(0)?.signals || [], zones: payload(1)?.zones || [], alerts: payload(2)?.alerts || [], performance: payload(3) || { overall: {} } });
       setError(calls.every((call) => call.status === "rejected") ? "System history is unavailable." : "");
     };
     load(); const timer = setInterval(load, 30000); return () => { active = false; clearInterval(timer); };
@@ -33,7 +33,7 @@ export default function LowerTabs({ selectedSymbol, collapsed, onToggleCollapsed
       {tab === "Performance" && <PerformanceSummary performance={data.performance} />}
       {tab === "Research" && <BacktestingResearch selectedSymbol={selectedSymbol} />}
       {tab === "Alerts" && <table><thead><tr><th>Time</th><th>Symbol</th><th>Severity</th><th>Event</th><th>Message</th></tr></thead><tbody>{alerts.slice(0, 50).map((a) => <tr key={a.id}><td>{date(a.created_at)}</td><td>{a.symbol}</td><td>{a.severity}</td><td>{a.alert_type}</td><td>{a.message}</td></tr>)}</tbody></table>}
-      {tab === "System" && <div className="system-grid"><span>Backend <strong>{data.health?.backend || "unavailable"}</strong></span><span>Database <strong>{data.health?.database || "unavailable"}</strong></span><span>Provider <strong>{data.provider?.label || data.health?.providerLabel || "—"}</strong></span><span>Bridge <strong>{data.provider?.bridge?.status || "—"}</strong></span><span>Last scan <strong>{data.health?.lastScan?.lastStatus || "—"}</strong></span><span>Last success <strong>{date(data.health?.lastScan?.lastSuccessfulScanAt)}</strong></span>{data.health?.lastScan?.latestScanError && <span className="wide">Latest error <strong>{data.health.lastScan.latestScanError}</strong></span>}</div>}
+      {tab === "System" && <div className="system-grid"><span>Backend <strong>{systemHealth?.backend || "unavailable"}</strong></span><span>Database <strong>{systemHealth?.database_status || "unavailable"}</strong></span><span>Provider <strong>{systemHealth?.providerLabel || "—"}</strong></span><span>Bridge <strong>{systemHealth?.bridge?.status || "—"}</strong></span><span>Last scan <strong>{systemHealth?.lastScan?.lastStatus || "—"}</strong></span><span>Last success <strong>{date(systemHealth?.lastScan?.lastSuccessfulScanAt)}</strong></span>{systemHealth?.lastScan?.latestScanError && <span className="wide">Latest error <strong>{systemHealth.lastScan.latestScanError}</strong></span>}</div>}
     </div>}
   </section>;
 }

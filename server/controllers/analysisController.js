@@ -4,6 +4,7 @@ const { calculateTrendFromCandles } = require("../analysis/trendEngine");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
 const { createSignalForZone } = require("../services/signalService");
 const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
+const { MT5_SOURCE } = require("../services/mt5MarketMetadataService");
 
 const fetchCandles = async (symbol, timeframe) => {
   const result = await pool.query(
@@ -13,10 +14,11 @@ const fetchCandles = async (symbol, timeframe) => {
         JOIN assets ON candles.asset_id = assets.id
         WHERE assets.symbol = $1
         AND candles.timeframe = $2
+        AND candles.source = $3
         ORDER BY candles.candle_time DESC
         LIMIT 300
         `,
-    [symbol, timeframe],
+    [symbol, timeframe, MT5_SOURCE],
   );
 
   return result.rows;

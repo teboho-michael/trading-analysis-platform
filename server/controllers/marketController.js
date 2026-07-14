@@ -23,7 +23,7 @@ const collectMarketData = async (req, res) => {
 
     res.status(status).json({
       success: false,
-      status: status === 503 ? "awaiting_mt5_sync" : "failed",
+      status: status === 503 ? "awaiting_mt5_candles" : "failed",
       data_source: "mt5_broker",
       error: error.message,
     });

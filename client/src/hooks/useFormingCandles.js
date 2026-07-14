@@ -19,6 +19,7 @@ export const useFormingCandles = (candles, quote, symbol, timeframe, enabled) =>
     const latest = candles.at(-1);
     if (!Number.isFinite(price) || !Number.isFinite(quoteTime) || !duration || !latest) return;
     const elapsed = Math.max(0, quoteTime - latest.chart_time);
+    if (elapsed < duration) return;
     const targetTime = latest.chart_time + Math.floor(elapsed / duration) * duration;
     setForming((previous) => {
       const base = previous?.chart_time === targetTime ? previous : targetTime === latest.chart_time ? latest : { ...latest, id: undefined, chart_time: targetTime, candle_time: new Date(targetTime * 1000).toISOString(), open: latest.close, high: latest.close, low: latest.close, close: latest.close };

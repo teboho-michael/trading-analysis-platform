@@ -3,6 +3,7 @@ import { getCandles } from "../services/candleService";
 
 export const useCandles = (symbol, timeframe) => {
   const [candles, setCandles] = useState([]);
+  const [metadata, setMetadata] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const requestIdRef = useRef(0);
@@ -17,11 +18,13 @@ export const useCandles = (symbol, timeframe) => {
       const data = await getCandles(symbol, timeframe);
 
       if (requestId !== requestIdRef.current) return;
-      setCandles(data);
+      setCandles(data.candles);
+      setMetadata(data.metadata);
     } catch (error) {
       if (requestId !== requestIdRef.current) return;
 
       setCandles([]);
+      setMetadata(null);
       setError(
         error.response?.data?.error ||
           error.response?.data?.message ||
@@ -34,6 +37,7 @@ export const useCandles = (symbol, timeframe) => {
 
   useEffect(() => {
     setCandles([]);
+    setMetadata(null);
     fetchCandles({ showLoading: true });
 
     const interval = setInterval(
@@ -49,6 +53,7 @@ export const useCandles = (symbol, timeframe) => {
 
   return {
     candles,
+    metadata,
     loading,
     error,
     refreshCandles: fetchCandles,

@@ -23,7 +23,6 @@ function App() {
   const [selectedAsset, setSelectedAsset] = useState(() => initialParam("symbol", TRACKED_ASSETS, "BTCUSD"));
   const [selectedTimeframe, setSelectedTimeframe] = useState(() => initialParam("timeframe", ALLOWED_CHART_TIMEFRAMES, "H1"));
   const [liveMode, setLiveMode] = useState(true);
-  const [chartMode, setChartMode] = useState("tradingview");
   const [analysisVisible, setAnalysisVisible] = useState(true);
   const [historyVisible, setHistoryVisible] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
@@ -33,6 +32,7 @@ function App() {
   const { dashboard, loading, error, refreshDashboard } = useDashboard();
   const {
     candles,
+    metadata: candleMetadata,
     loading: candlesLoading,
     error: candlesError,
     refreshCandles,
@@ -125,6 +125,7 @@ function App() {
 
         <TradingChartPanel
           candles={visibleCandles}
+          candleMetadata={candleMetadata}
           candlesLoading={candlesLoading}
           candlesError={candlesError}
           selectedAsset={selectedAsset}
@@ -134,12 +135,10 @@ function App() {
           onDataCollected={handleDataCollected}
           liveQuote={selectedLiveQuote}
           liveStatus={live.status}
-          chartMode={chartMode}
-          onChartModeChange={setChartMode}
         />
 
-        {!focusMode && analysisVisible && <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} selectedTimeframe={getAnalysisTimeframe(selectedTimeframe)} onJournalCreated={() => setJournalRefreshToken((value) => value + 1)} />}
-        {!focusMode && <LowerTabs selectedSymbol={selectedAsset} collapsed={!historyVisible} onToggleCollapsed={() => setHistoryVisible((value) => !value)} journalRefreshToken={journalRefreshToken} />}
+        {!focusMode && analysisVisible && <AnalysisPanel asset={selectedAssetData} latestPrice={latestPrice} liveQuote={selectedLiveQuote} selectedTimeframe={getAnalysisTimeframe(selectedTimeframe)} candleMetadata={candleMetadata} systemHealth={systemHealth} onJournalCreated={() => setJournalRefreshToken((value) => value + 1)} />}
+        {!focusMode && <LowerTabs selectedSymbol={selectedAsset} collapsed={!historyVisible} onToggleCollapsed={() => setHistoryVisible((value) => !value)} journalRefreshToken={journalRefreshToken} systemHealth={systemHealth} />}
       </main>
     </div>
   );

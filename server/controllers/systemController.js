@@ -3,6 +3,10 @@ const mt5Provider = require("../market/providers/mt5BrokerProvider");
 const { getSafeInstruments, normalizeProviderMode, PROVIDER_LABELS } = require("../market/instrumentRegistry");
 const { getScanStatus } = require("../services/scanStatusService");
 const { MT5_SOURCE, candleCountsBySource, evidencePolicy } = require("../services/mt5EvidencePolicy");
+const {
+  classifyCandleFreshness,
+  getNextExpectedClose,
+} = require("../services/mt5MarketMetadataService");
 
 const getInstruments = (req, res) => res.json({ success: true, instruments: getSafeInstruments() });
 
@@ -27,10 +31,16 @@ const health = async (req, res) => {
   const lastScan = database === "available" ? await getScanStatus() : null;
   let latestMt5Candles = [];
   let nonMt5CandleCounts = [];
+  let latestBridgeRuns = [];
   if (database === "available") {
     latestMt5Candles = (await pool.query(
       `
-        SELECT a.symbol,c.timeframe,MAX(c.candle_time) AS latest_candle_time,COUNT(*)::int AS mt5_candle_count
+        SELECT
+          a.symbol,
+          c.timeframe,
+          MAX(c.candle_time) AS latest_candle_time,
+          MAX(c.candle_time) FILTER (WHERE c.candle_time <= CURRENT_TIMESTAMP - CASE c.timeframe WHEN 'H1' THEN INTERVAL '1 hour' WHEN 'H4' THEN INTERVAL '4 hours' ELSE INTERVAL '1 day' END) AS latest_closed_candle_time,
+          COUNT(*)::int AS mt5_candle_count
         FROM candles c
         JOIN assets a ON a.id=c.asset_id
         WHERE c.source=$1
@@ -50,13 +60,55 @@ const health = async (req, res) => {
       `,
       [MT5_SOURCE],
     )).rows;
+    try {
+      latestBridgeRuns = (await pool.query(
+        `
+          SELECT DISTINCT ON (platform_symbol,timeframe)
+            platform_symbol AS symbol,
+            broker_symbol,
+            timeframe,
+            started_at,
+            completed_at,
+            success,
+            received_count,
+            inserted_count,
+            updated_count,
+            rejected_count,
+            latest_candle_time
+          FROM mt5_bridge_runs
+          WHERE success = TRUE
+          ORDER BY platform_symbol,timeframe,completed_at DESC
+        `,
+      )).rows;
+    } catch (_error) {
+      latestBridgeRuns = [];
+    }
   }
-  const staleAfterMs = Number(process.env.MT5_STALE_AFTER_MS || 8 * 60 * 60 * 1000);
-  const now = Date.now();
-  const staleWarnings = latestMt5Candles.filter((item) => {
-    const timestamp = item.latest_candle_time ? new Date(item.latest_candle_time).getTime() : NaN;
-    return !Number.isFinite(timestamp) || now - timestamp > staleAfterMs;
-  }).map((item) => ({ symbol: item.symbol, timeframe: item.timeframe, status: "stale_mt5_data", latest_candle_time: item.latest_candle_time }));
+  latestMt5Candles = latestMt5Candles.map((item) => {
+    const latestClosed = item.latest_closed_candle_time || null;
+    const latestStored = item.latest_candle_time || null;
+    const freshness = classifyCandleFreshness({
+      timeframe: item.timeframe,
+      latestClosedCandleTime: latestClosed,
+      candleCount: item.mt5_candle_count,
+    });
+    return {
+      ...item,
+      latest_stored_candle_time: latestStored,
+      latest_closed_candle_time: latestClosed,
+      forming_candle_present: Boolean(latestStored && latestClosed && String(latestStored) !== String(latestClosed)),
+      forming_candle_time: latestStored && latestClosed && String(latestStored) !== String(latestClosed) ? latestStored : null,
+      next_expected_close_time: getNextExpectedClose(item.timeframe, latestClosed || latestStored),
+      ...freshness,
+    };
+  });
+  const staleWarnings = latestMt5Candles
+    .filter((item) => ["delayed", "stale", "missing", "awaiting_first_sync"].includes(item.freshness))
+    .map((item) => ({ symbol: item.symbol, timeframe: item.timeframe, status: item.freshness, latest_candle_time: item.latest_candle_time, latest_closed_candle_time: item.latest_closed_candle_time, reason: item.reason }));
+  const bridgeLastSuccess = latestBridgeRuns.reduce((latest, item) => {
+    if (!latest) return item.completed_at;
+    return new Date(item.completed_at) > new Date(latest) ? item.completed_at : latest;
+  }, null);
   res.status(healthy ? 200 : 503).json({
     success: healthy,
     application_status: healthy ? "available" : "degraded",
@@ -66,7 +118,8 @@ const health = async (req, res) => {
     providerMode: mode,
     providerLabel: PROVIDER_LABELS[mode],
     bridge,
-    bridge_last_success: null,
+    bridge_last_success: bridgeLastSuccess,
+    latest_bridge_runs: latestBridgeRuns,
     latest_mt5_candles: latestMt5Candles,
     stale_data_warnings: staleWarnings,
     non_mt5_candle_counts: nonMt5CandleCounts,

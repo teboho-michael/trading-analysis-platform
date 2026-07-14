@@ -10,14 +10,43 @@ const normalizeQuote = (symbol, raw) => {
   const instrument = getInstrument(symbol);
   const bid = raw.bid === null || raw.bid === undefined ? NaN : Number(raw.bid);
   const ask = raw.ask === null || raw.ask === undefined ? NaN : Number(raw.ask);
-  const rawPrice = Number(raw.price);
-  const price = Number.isFinite(rawPrice) ? rawPrice : Number.isFinite(bid) ? bid : Number.isFinite(ask) ? ask : NaN;
-  if (!Number.isFinite(price)) {
+  const mid = Number.isFinite(bid) && Number.isFinite(ask) ? (bid + ask) / 2 : Number.isFinite(bid) ? bid : Number.isFinite(ask) ? ask : NaN;
+  if (!Number.isFinite(mid)) {
     const error = new Error(`LIVE_PRICE_UNAVAILABLE: MT5 bridge returned no valid price for ${symbol}`);
     error.status = "unavailable";
     throw error;
   }
-  return { symbol, providerSymbol: instrument.providerSymbol, analysisProviderSymbol: instrument.activeAnalysisSymbol, tradingViewSymbol: instrument.tradingViewSymbol, dataSource: instrument.dataSourceLabel, priceScaleMode: instrument.priceScaleMode, sourceMode: instrument.sourceMode, dataModeLabel: instrument.dataModeLabel, syncStatus: instrument.syncStatus, price, bid: Number.isFinite(bid) ? bid : null, ask: Number.isFinite(ask) ? ask : null, timestamp: raw.timestamp || new Date().toISOString(), sourceTimestamp: raw.sourceTimestamp || raw.timestamp || null, marketStatus: raw.marketStatus || "unavailable", isProxy: instrument.isProxy, dataTruthNote: instrument.dataTruthNote };
+  const tickTime = raw.tick_time || raw.sourceTimestamp || raw.timestamp || new Date().toISOString();
+  const ageSeconds = Math.max(0, Math.floor((Date.now() - new Date(tickTime).getTime()) / 1000));
+  const staleAfterSeconds = Math.max(Number(process.env.MT5_TICK_STALE_AFTER_SECONDS || 180), 30);
+  const stale = !Number.isFinite(ageSeconds) || ageSeconds > staleAfterSeconds;
+  return {
+    symbol,
+    platform_symbol: symbol,
+    broker_symbol: instrument.brokerSymbol,
+    provider: "XM MT5",
+    providerSymbol: instrument.providerSymbol,
+    analysisProviderSymbol: instrument.activeAnalysisSymbol,
+    dataSource: instrument.dataSourceLabel,
+    priceScaleMode: instrument.priceScaleMode,
+    sourceMode: instrument.sourceMode,
+    dataModeLabel: instrument.dataModeLabel,
+    syncStatus: instrument.syncStatus,
+    source: "mt5_broker",
+    price: mid,
+    mid,
+    bid: Number.isFinite(bid) ? bid : null,
+    ask: Number.isFinite(ask) ? ask : null,
+    timestamp: tickTime,
+    tick_time: tickTime,
+    sourceTimestamp: tickTime,
+    age_seconds: Number.isFinite(ageSeconds) ? ageSeconds : null,
+    freshness: stale ? "stale" : "current",
+    status: stale ? "stale_mt5_tick" : "available",
+    marketStatus: raw.marketStatus || "unknown",
+    isProxy: false,
+    dataTruthNote: instrument.dataTruthNote,
+  };
 };
 
 const unavailableQuote = (symbol, status, message, cachedQuote) => {
@@ -25,14 +54,19 @@ const unavailableQuote = (symbol, status, message, cachedQuote) => {
   return {
     ...(cachedQuote || {}),
     symbol,
-    provider: "MT5 Broker",
+    provider: "XM MT5",
     providerSymbol: instrument.providerSymbol,
     analysisProviderSymbol: instrument.activeAnalysisSymbol,
-    tradingViewSymbol: instrument.tradingViewSymbol,
+    broker_symbol: instrument.brokerSymbol,
+    source: "mt5_broker",
     dataSource: instrument.dataSourceLabel,
     price: cachedQuote?.price ?? null,
+    mid: cachedQuote?.mid ?? null,
     bid: cachedQuote?.bid ?? null,
     ask: cachedQuote?.ask ?? null,
+    tick_time: cachedQuote?.tick_time ?? null,
+    age_seconds: cachedQuote?.age_seconds ?? null,
+    freshness: status === "stale_mt5_tick" ? "stale" : "missing",
     status,
     message,
   };
@@ -49,8 +83,8 @@ const fetchQuotes = async (symbols) => {
       const symbol = symbols[index];
       const cachedQuote = cache.get(`${mode}:${symbol}`)?.quote;
       const stale = Boolean(cachedQuote);
-      quotes.push(unavailableQuote(symbol, stale ? "stale_mt5_data" : "awaiting_mt5_sync", result.reason.message, cachedQuote));
-      errors.push({ symbol, status: stale ? "stale_mt5_data" : "awaiting_mt5_sync", error: result.reason.message });
+      quotes.push(unavailableQuote(symbol, stale ? "stale_mt5_tick" : "awaiting_mt5_tick", result.reason.message, cachedQuote));
+      errors.push({ symbol, status: stale ? "stale_mt5_tick" : "awaiting_mt5_tick", error: result.reason.message });
     }
   });
   if (!quotes.length) { const error = new Error(errors.map((item) => `${item.symbol}: ${item.error}`).join("; ")); error.details = errors; throw error; }

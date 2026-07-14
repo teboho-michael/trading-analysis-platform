@@ -285,6 +285,39 @@
   background: #1c2d50;
 }
 
+.chart-metadata {
+  min-height: 38px;
+  padding: 6px 14px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(95px, 1fr));
+  gap: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  background: rgba(9, 13, 22, 0.72);
+}
+
+.chart-metadata span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chart-metadata small {
+  color: var(--subtle);
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.chart-metadata strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chart-context {
   min-height: 47px;
   padding: 7px 14px;
@@ -335,21 +368,6 @@
   overflow: hidden;
   background: var(--panel-strong);
 }
-
-.tradingview-terminal {
-  min-height: 420px;
-  height: 100%;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) 28px;
-  overflow: hidden;
-  background: #0b0f17;
-}
-
-.tradingview-widget-container { min-width: 0; min-height: 0; width: 100%; height: 100%; }
-.tradingview-source-bar { padding: 0 10px; display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--border-soft); color: var(--subtle); font-size: 9px; white-space: nowrap; overflow: hidden; }
-.tradingview-source-bar span:first-child { color: #abc4ff; font-weight: 700; }
-.tradingview-source-bar span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; }
-.tradingview-source-bar button { margin-left: auto; padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; background: #141b27; color: var(--muted); font-size: 9px; white-space: nowrap; }
 
 .chart-state {
   min-height: 360px;

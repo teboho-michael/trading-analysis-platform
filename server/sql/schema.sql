@@ -458,7 +458,6 @@ CREATE TABLE public.setup_journal (
     tags text[],
     data_source character varying(64) NOT NULL,
     provider_symbol character varying(64) NOT NULL,
-    tradingview_symbol character varying(64) NOT NULL,
     price_scale_mode character varying(32) NOT NULL,
     source_mode character varying(32) NOT NULL,
     entry_type character varying(32) DEFAULT 'setup'::character varying NOT NULL,
@@ -1291,4 +1290,3 @@ ALTER TABLE ONLY public.zones
 --
 
 \unrestrict bwFZ7bbJgMC8sML9BFj5jEXcspOhrUig0PMOLQiK96XsobsX03QlulwrWAMhMXo
-

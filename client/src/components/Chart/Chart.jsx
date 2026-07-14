@@ -31,6 +31,7 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       layout: {
         background: { color: "#0b0f17" },
         textColor: "#8c98aa",
+        attributionLogo: false,
       },
       grid: {
         vertLines: { color: "#171d29" },
@@ -87,14 +88,15 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       }))
     );
 
+    const emaCandles = candles.filter((candle) => !candle.isForming);
     const emaSeries = chart.addSeries(LineSeries, {
       color: "#f4bd62",
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: true,
-      title: "EMA 200 · LIVE PREVIEW",
+      title: "EMA 200 · CLOSED MT5",
     });
-    emaSeries.setData(calculateEmaSeries(candles).slice(-180));
+    emaSeries.setData(calculateEmaSeries(emaCandles).slice(-180));
 
     const validActiveZone =
       activeZone?.status === "active" &&

@@ -1,6 +1,7 @@
 const pool = require("../db/connection");
 const { evaluateZoneLifecycle } = require("../analysis/zoneLifecycleEngine");
 const { createAlertEvent } = require("./alertService");
+const { MT5_SOURCE } = require("./mt5MarketMetadataService");
 
 const updateZoneLifecycle = async (assetId) => {
   const assetResult = await pool.query("SELECT symbol FROM assets WHERE id=$1", [assetId]);
@@ -58,10 +59,11 @@ const updateZoneLifecycle = async (assetId) => {
     FROM candles
     WHERE asset_id = $1
     AND timeframe = 'H1'
+    AND source = $2
     ORDER BY candle_time DESC
     LIMIT 1
     `,
-    [assetId],
+    [assetId, MT5_SOURCE],
   );
 
   if (candleResult.rows.length === 0) {

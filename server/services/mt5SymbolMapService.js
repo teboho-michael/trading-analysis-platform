@@ -1,16 +1,16 @@
 const MT5_SYMBOL_MAP = Object.freeze({
-  BTCUSD: ["BTCUSD", "BTCUSD.", "BTCUSDm"],
-  XAUUSD: ["XAUUSD", "GOLD", "XAUUSD.", "XAUUSDm"],
-  USDJPY: ["USDJPY", "USDJPYm", "USDJPY."],
-  US500: ["US500Cash", "US500", "SP500", "US500m"],
-  US100: ["US100Cash", "US100", "NAS100", "USTEC", "US100m"],
+  BTCUSD: ["BTCUSD"],
+  XAUUSD: ["GOLDmicro"],
+  USDJPY: ["USDJPY"],
+  US500: ["US500Cash"],
+  US100: ["US100Cash"],
 });
 
 const getSymbolMap = () => ({
   source: "mt5_broker",
-  configurable: true,
-  status: "foundation_only",
-  note: "Candidate broker symbols are server-side defaults for the Windows MT5 bridge and may need broker-account-specific tuning.",
+  configurable: false,
+  status: "authoritative",
+  note: "V5.2 uses the confirmed XM MT5 broker symbols as the active platform mapping.",
   symbols: MT5_SYMBOL_MAP,
 });
 

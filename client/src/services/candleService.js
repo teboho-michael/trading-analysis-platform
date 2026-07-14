@@ -4,17 +4,12 @@ const normalizeCandlesForChart = (candles, symbol, timeframe) => {
   const candleMap = new Map();
 
   candles.forEach((candle) => {
-    if (candle.symbol !== symbol || candle.timeframe !== timeframe) {
-      throw new Error(
-        `Candle identity mismatch: requested ${symbol} ${timeframe}, received ${candle.symbol} ${candle.timeframe}`,
-      );
-    }
-
-    const timestamp = new Date(candle.candle_time).getTime();
+    const timestamp = new Date(candle.candle_time || candle.time).getTime();
     const open = Number(candle.open);
     const high = Number(candle.high);
     const low = Number(candle.low);
     const close = Number(candle.close);
+    const volume = Number(candle.volume);
 
     if (
       !Number.isFinite(timestamp) ||
@@ -27,10 +22,14 @@ const normalizeCandlesForChart = (candles, symbol, timeframe) => {
 
     candleMap.set(timeInSeconds, {
       ...candle,
+      symbol,
+      timeframe,
       open,
       high,
       low,
       close,
+      volume: Number.isFinite(volume) ? volume : 0,
+      candle_time: new Date(timestamp).toISOString(),
       chart_time: timeInSeconds,
     });
   });
@@ -44,7 +43,7 @@ export const getCandles = async (symbol, timeframe) => {
   const response = await api.get(`/candles/${symbol}/${timeframe}`);
 
   if (
-    response.data.symbol !== symbol ||
+    response.data.platform_symbol !== symbol ||
     response.data.timeframe !== timeframe
   ) {
     throw new Error(
@@ -52,5 +51,27 @@ export const getCandles = async (symbol, timeframe) => {
     );
   }
 
-  return normalizeCandlesForChart(response.data.candles, symbol, timeframe);
+  return {
+    candles: normalizeCandlesForChart(response.data.candles, symbol, timeframe),
+    metadata: {
+      symbol: response.data.platform_symbol,
+      brokerSymbol: response.data.broker_symbol,
+      timeframe: response.data.timeframe,
+      source: response.data.source,
+      dataSource: response.data.data_source,
+      sourcePurity: response.data.source_purity,
+      candleCount: response.data.candle_count,
+      earliestCandleTime: response.data.earliest_candle_time,
+      latestCandleTime: response.data.latest_candle_time,
+      latestStoredCandleTime: response.data.latest_stored_candle_time,
+      latestClosedCandleTime: response.data.latest_closed_candle_time,
+      formingCandlePresent: response.data.forming_candle_present,
+      formingCandleTime: response.data.forming_candle_time,
+      nextExpectedCloseTime: response.data.next_expected_close_time,
+      freshness: response.data.freshness,
+      reason: response.data.reason,
+      candleAgeSeconds: response.data.candle_age_seconds,
+      staleThresholdSeconds: response.data.stale_threshold_seconds,
+    },
+  };
 };

@@ -5,6 +5,7 @@ const { updateZoneLifecycle } = require("../services/zoneLifecycleService");
 const { getActiveZone } = require("../services/zoneService");
 const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
 const { getInstrument } = require("../market/instrumentRegistry");
+const { MT5_SOURCE } = require("../services/mt5MarketMetadataService");
 
 const ZONE_PROXIMITY_PERCENT = 0.003; // 0.3%
 
@@ -15,10 +16,11 @@ const fetchCandles = async (assetId, timeframe) => {
         FROM candles
         WHERE asset_id = $1
         AND timeframe = $2
+        AND source = $3
         ORDER BY candle_time DESC
         LIMIT 300
         `,
-    [assetId, timeframe],
+    [assetId, timeframe, MT5_SOURCE],
   );
 
   return result.rows;
@@ -157,7 +159,6 @@ const buildAssetAnalysis = async (asset) => {
       platformSymbol: instrument.platformSymbol,
       symbol: instrument.symbol,
       displayName: instrument.displayName,
-      tradingViewSymbol: instrument.tradingViewSymbol,
       analysisProvider: instrument.activeAnalysisProvider,
       analysisProviderSymbol: instrument.activeAnalysisSymbol,
       providerSymbol: instrument.providerSymbol,
@@ -170,8 +171,7 @@ const buildAssetAnalysis = async (asset) => {
       syncStatus: instrument.syncStatus,
       dataSourceMode: instrument.dataSourceMode,
       dataSourceLabel: instrument.dataSourceLabel,
-      isProxy: instrument.isProxy,
-      proxySymbol: instrument.isProxy ? instrument.proxySymbol : null,
+      isProxy: false,
       priceRange: instrument.priceRange,
       dataTruthNote: instrument.dataTruthNote,
       note: instrument.note,

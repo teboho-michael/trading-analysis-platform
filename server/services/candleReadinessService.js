@@ -76,7 +76,7 @@ const collectRequiredData = async (input = {}) => {
       const after = await checkSymbolTimeframeReadiness({ symbol: before.symbol, timeframe: item.timeframe, date_from: input.date_from, date_to: input.date_to, minimumCandles: item.required });
       statuses.push({ timeframe: item.timeframe, status: after.ready ? "collected" : "partially_collected", candles_saved: collection.candlesSaved, available: after.available, required: after.required });
     } catch (error) {
-      const mapped = error.message?.includes("MT5_BRIDGE_ERROR") ? "awaiting_mt5_sync" : "failed";
+      const mapped = error.message?.includes("MT5_BRIDGE_ERROR") ? "awaiting_mt5_candles" : "failed";
       statuses.push({ timeframe: item.timeframe, status: mapped, available: item.available, required: item.required, message: error.message, provider_code: error.code || null });
     }
   }

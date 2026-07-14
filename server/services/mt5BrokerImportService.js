@@ -6,6 +6,7 @@ const {
 } = require("../market/candleCollector");
 const { validateCandle } = require("../market/candleValidator");
 const { MT5_SYMBOL_MAP } = require("./mt5SymbolMapService");
+const { getBrokerSymbol } = require("./mt5MarketMetadataService");
 
 const SOURCE = "mt5_broker";
 
@@ -40,6 +41,10 @@ const validatePayload = (payload) => {
     throw validationError(`Unsupported MT5 bridge symbol: ${symbol}`);
   }
 
+  if (brokerSymbol !== getBrokerSymbol(symbol)) {
+    throw validationError(`Broker symbol mismatch for ${symbol}: expected ${getBrokerSymbol(symbol)}, received ${brokerSymbol}`);
+  }
+
   if (payload.candles.length === 0) {
     throw validationError("candles must contain at least one candle");
   }
@@ -66,6 +71,7 @@ const mapCandle = (symbol, candle, index) => {
 const importCandles = async (payload) => {
   const { symbol, brokerSymbol, timeframe, candles } = validatePayload(payload);
   const asset = await getAssetBySymbol(symbol);
+  const startedAt = payload.started_at ? new Date(payload.started_at) : null;
 
   if (!asset) {
     throw validationError(`Asset not found for symbol: ${symbol}`);
@@ -90,6 +96,44 @@ const importCandles = async (payload) => {
         rejected.push({ index, reason: error.message });
       }
     }
+
+    const sortedTimes = saved
+      .map((row) => new Date(row.candle_time))
+      .filter((date) => !Number.isNaN(date.getTime()))
+      .sort((a, b) => a - b);
+
+    await client.query(
+      `
+        INSERT INTO mt5_bridge_runs
+        (
+          platform_symbol,
+          broker_symbol,
+          timeframe,
+          started_at,
+          completed_at,
+          success,
+          received_count,
+          inserted_count,
+          updated_count,
+          rejected_count,
+          earliest_candle_time,
+          latest_candle_time
+        )
+        VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP,TRUE,$5,$6,$7,$8,$9,$10)
+      `,
+      [
+        symbol,
+        brokerSymbol,
+        timeframe,
+        startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt : null,
+        candles.length,
+        saved.filter((row) => row.inserted).length,
+        saved.filter((row) => !row.inserted).length,
+        rejected.length,
+        sortedTimes[0] || null,
+        sortedTimes.at(-1) || null,
+      ],
+    );
 
     await client.query("COMMIT");
   } catch (error) {

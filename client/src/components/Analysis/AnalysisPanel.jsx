@@ -9,6 +9,8 @@ const formatValue = (value, maximumFractionDigits = 5) => {
     : "—";
 };
 
+const formatDateTime = (value) => value ? new Date(value).toLocaleString() : "—";
+
 const classToken = (value) => String(value || "wait").toLowerCase().replaceAll(" ", "-");
 
 function AnalysisRow({ label, value, valueClass = "" }) {
@@ -38,16 +40,11 @@ const getZoneStatus = (zone) => {
 };
 
 const getAlignmentMessage = (metadata) => {
-  if (metadata.priceScaleMode === "proxy") {
-    return "Proxy mode active. Levels are based on proxy data.";
-  }
-  if (metadata.syncStatus === "Different source / approximate") {
-    return "Chart and analysis use different instruments. Treat levels as approximate.";
-  }
-  return "Chart and analysis are aligned by direct symbol.";
+  if (metadata.sourceMode !== "mt5_broker") return "Source metadata is unavailable for the selected market.";
+  return "Chart, analysis, and research are aligned to stored XM MT5 broker candles.";
 };
 
-function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe = "H1", onJournalCreated }) {
+function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe = "H1", candleMetadata, systemHealth, onJournalCreated }) {
   const [journalState, setJournalState] = useState({ busy: false, message: "", error: false, entry: null });
 
   const instrument = getInstrument(asset.symbol);
@@ -74,7 +71,7 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
   const proximity = checklist.find((item) => item.key === "proximity");
   const canJournal = Boolean(levels?.entry && levels?.stopLoss && levels?.takeProfit1 && ["BUY", "SELL"].includes(direction));
   const insufficientData = [asset.dailyBias, asset.h4Bias, asset.h1Trend].some((value) => String(value).toLowerCase().includes("insufficient"));
-  const providerLimited = !canJournal && insufficientData && ["SPX", "NDX"].includes(metadata.analysisProviderSymbol || metadata.providerSymbol);
+  const providerLimited = !canJournal && insufficientData && metadata.sourceMode !== "mt5_broker";
   const entryType = canJournal ? "setup" : providerLimited ? "provider_limited" : (stage === "WATCH" || activeZone) ? "watch" : "observation";
   const analysisTimeframe = ["M1", "M5", "M15"].includes(selectedTimeframe) ? "H1" : selectedTimeframe;
   const dedupeKey = useMemo(() => `${asset.symbol}:${entryType}:${stage}:${asset.qualityScore ?? 0}:${asset.dailyBias || "none"}:${asset.h4Bias || "none"}:${asset.h1Trend || "none"}:${new Date().toISOString().slice(0, 10)}`, [asset.symbol, asset.qualityScore, asset.dailyBias, asset.h4Bias, asset.h1Trend, entryType, stage]);
@@ -104,7 +101,7 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
           zone_high: activeZone?.zone_high, zone_low: activeZone?.zone_low, zone_status: activeZone?.status, distance_from_zone: asset.zoneProximity?.distanceFromZone,
           entry: levels?.entry, stop_loss: levels?.stopLoss, tp1: levels?.takeProfit1, tp2: levels?.takeProfit2,
           data_source: metadata.dataSourceLabel, provider_symbol: metadata.analysisProviderSymbol || metadata.providerSymbol,
-          tradingview_symbol: metadata.tradingViewSymbol, price_scale_mode: metadata.priceScaleMode, source_mode: metadata.sourceMode,
+          price_scale_mode: metadata.priceScaleMode, source_mode: metadata.sourceMode, broker_symbol: metadata.brokerSymbol,
           reviewer_notes: entryType === "setup" ? undefined : "Tracked from right panel observation",
           notes: entryType === "provider_limited" ? `Analysis unavailable for ${asset.symbol}: current provider access does not supply ${metadata.analysisProviderSymbol || metadata.providerSymbol}.` : nextAction,
           dedupe_key: dedupeKey,
@@ -192,12 +189,19 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
 
       <section className="decision-card data-truth-card">
         <h3>Data / Source Alignment</h3>
-        <AnalysisRow label="Chart symbol" value={metadata.tradingViewSymbol || "TradingView"} />
-        <AnalysisRow label="Analysis symbol" value={metadata.analysisProviderSymbol || metadata.providerSymbol || "—"} />
-        <AnalysisRow label="Data mode" value={metadata.dataModeLabel || "Direct market data"} />
-        <AnalysisRow label="Sync status" value={metadata.syncStatus || "Aligned"} />
-        <AnalysisRow label="Provider" value={metadata.dataSourceLabel || "MT5 Broker"} />
-        <AnalysisRow label="Broker mapping" value="Pending MT5/VPS" />
+        <AnalysisRow label="Platform symbol" value={asset.symbol} />
+        <AnalysisRow label="XM broker symbol" value={candleMetadata?.brokerSymbol || metadata.brokerSymbol || metadata.providerSymbol || "—"} />
+        <AnalysisRow label="Provider" value="XM MT5" />
+        <AnalysisRow label="Active source" value={candleMetadata?.source || metadata.sourceMode || "mt5_broker"} />
+        <AnalysisRow label="Timeframe" value={selectedTimeframe} />
+        <AnalysisRow label="MT5 candles" value={candleMetadata?.candleCount ?? "—"} />
+        <AnalysisRow label="Latest stored" value={formatDateTime(candleMetadata?.latestStoredCandleTime)} />
+        <AnalysisRow label="Latest closed" value={formatDateTime(candleMetadata?.latestClosedCandleTime)} />
+        <AnalysisRow label="Bridge sync" value={formatDateTime(systemHealth?.bridge_last_success)} />
+        <AnalysisRow label="Candle freshness" value={candleMetadata?.freshness || "checking"} />
+        <AnalysisRow label="Live tick" value={liveQuote?.status || "unavailable"} />
+        <AnalysisRow label="Source purity" value={candleMetadata?.sourcePurity?.non_mt5_rows_in_response === 0 ? "MT5 only" : "mixed"} />
+        <AnalysisRow label="Available frames" value="D1, H4, H1" />
         <p className={`alignment-line alignment-${classToken(metadata.priceScaleMode || "direct")}`}>{getAlignmentMessage(metadata)}</p>
       </section>
     </aside>
