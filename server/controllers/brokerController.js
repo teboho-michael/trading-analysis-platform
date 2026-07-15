@@ -1,4 +1,5 @@
 const { importCandles } = require("../services/mt5BrokerImportService");
+const { importTicks } = require("../services/liveTickService");
 const { getSymbolMap } = require("../services/mt5SymbolMapService");
 
 const requireBridgeSecret = (req, res) => {
@@ -31,6 +32,21 @@ const importMt5Candles = async (req, res) => {
   }
 };
 
+const importMt5Ticks = async (req, res) => {
+  if (!requireBridgeSecret(req, res)) return;
+
+  try {
+    const summary = await importTicks(req.body || {});
+    res.status(summary.rejected_count ? 207 : 201).json({ success: summary.inserted_count > 0, import: summary });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: error.message,
+      details: error.details || null,
+    });
+  }
+};
+
 const getMt5SymbolMap = (_req, res) => {
   res.json({ success: true, symbol_map: getSymbolMap() });
 };
@@ -38,4 +54,5 @@ const getMt5SymbolMap = (_req, res) => {
 module.exports = {
   getMt5SymbolMap,
   importMt5Candles,
+  importMt5Ticks,
 };

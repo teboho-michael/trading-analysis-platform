@@ -1,8 +1,14 @@
 const pool = require("../db/connection");
 
-const createAlertEvent = async ({ assetId, symbol, alertType, severity = "info", message, relatedSignalId = null, relatedZoneId = null, metadata = {} }) => {
-  const result = await pool.query(`INSERT INTO alert_events (asset_id, symbol, alert_type, severity, message, related_signal_id, related_zone_id, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [assetId, symbol, alertType, severity, message, relatedSignalId, relatedZoneId, JSON.stringify(metadata)]);
-  return result.rows[0];
+const createAlertEvent = async ({ assetId, symbol, alertType, severity = "info", message, relatedSignalId = null, relatedZoneId = null, metadata = {}, dedupeKey = null }) => {
+  const result = await pool.query(
+    `INSERT INTO alert_events (asset_id, symbol, alert_type, severity, message, related_signal_id, related_zone_id, metadata, dedupe_key)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND resolved_at IS NULL DO NOTHING
+     RETURNING *`,
+    [assetId, symbol, alertType, severity, message, relatedSignalId, relatedZoneId, JSON.stringify(metadata), dedupeKey],
+  );
+  return result.rows[0] || null;
 };
 
 const recordSetupStage = async ({ assetId, symbol, stage, score, zoneId }) => {

@@ -118,10 +118,42 @@ def collect_closed_candles(broker_symbol: str, timeframe: str, limit: int) -> li
     return candles
 
 
+def collect_tick(platform_symbol: str, broker_symbol: str) -> dict:
+    tick = mt5.symbol_info_tick(broker_symbol)
+    if tick is None:
+        raise RuntimeError(f"MT5 returned no tick for {broker_symbol}: {mt5.last_error()}")
+    bid = float(tick.bid) if tick.bid else None
+    ask = float(tick.ask) if tick.ask else None
+    last = float(tick.last) if tick.last else None
+    return {
+        "platform_symbol": platform_symbol,
+        "broker_symbol": broker_symbol,
+        "bid": bid,
+        "ask": ask,
+        "last": last,
+        "tick_time": iso_time(tick.time),
+        "source": "mt5_broker",
+    }
+
+
 def post_import(payload: dict) -> dict:
     if not MT5_BRIDGE_SECRET:
         raise RuntimeError("Set MT5_BRIDGE_SECRET in the environment or mt5_bridge.local.json")
     url = f"{PLATFORM_API_BASE_URL.rstrip('/')}/api/broker/mt5/candles/import"
+    req = request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json", "x-mt5-bridge-secret": MT5_BRIDGE_SECRET},
+        method="POST",
+    )
+    with request.urlopen(req, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def post_ticks(payload: dict) -> dict:
+    if not MT5_BRIDGE_SECRET:
+        raise RuntimeError("Set MT5_BRIDGE_SECRET in the environment or mt5_bridge.local.json")
+    url = f"{PLATFORM_API_BASE_URL.rstrip('/')}/api/broker/mt5/ticks/import"
     req = request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -185,9 +217,40 @@ def sync_symbol_timeframe(platform_symbol: str, timeframe: str, state: dict) -> 
     return True
 
 
+def sync_ticks(symbols: list[str], state: dict) -> bool:
+    ticks = []
+    failed = []
+    for platform_symbol in symbols:
+        broker_symbol = select_broker_symbol(platform_symbol)
+        if not broker_symbol:
+            failed.append(platform_symbol)
+            continue
+        try:
+            ticks.append(with_retries(f"{platform_symbol}/{broker_symbol} tick", lambda: collect_tick(platform_symbol, broker_symbol)))
+        except Exception as exc:
+            print(f"{platform_symbol} tick: {exc}", flush=True)
+            failed.append(platform_symbol)
+    if ticks:
+        result = with_retries("live ticks import", lambda: post_ticks({"ticks": ticks, "started_at": utc_now()}))
+        summary = result.get("import", result)
+        state["latest_ticks"] = {
+            "last_success": utc_now(),
+            "received_count": summary.get("received_count"),
+            "inserted_count": summary.get("inserted_count"),
+            "rejected_count": summary.get("rejected_count"),
+            "symbols": [tick["platform_symbol"] for tick in ticks],
+        }
+        print(
+            f"ticks: received={summary.get('received_count')} inserted={summary.get('inserted_count')} rejected={summary.get('rejected_count')}",
+            flush=True,
+        )
+    return not failed
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Sync closed MT5 candles into Trading Analysis Platform")
     parser.add_argument("--sync-all", action="store_true", help="Sync all configured symbols and D1/H4/H1 timeframes")
+    parser.add_argument("--ticks", action="store_true", help="Sync latest live ticks for selected symbols")
     parser.add_argument("--symbol", choices=DEFAULT_SYMBOLS, help="Sync one platform symbol")
     parser.add_argument("--timeframe", choices=DEFAULT_TIMEFRAMES, help="Sync one timeframe")
     parser.add_argument("--limit", type=int, default=CANDLE_LIMIT, help="Closed candles to request per symbol/timeframe")
@@ -199,8 +262,8 @@ def run() -> int:
     global CANDLE_LIMIT
     CANDLE_LIMIT = args.limit
 
-    if not args.sync_all and not (args.symbol and args.timeframe):
-        raise RuntimeError("Use --sync-all or provide both --symbol and --timeframe")
+    if not args.sync_all and not args.ticks and not (args.symbol and args.timeframe):
+        raise RuntimeError("Use --sync-all, --ticks, or provide both --symbol and --timeframe")
 
     if not mt5.initialize():
         raise RuntimeError(f"MT5 initialize failed: {mt5.last_error()}")
@@ -210,6 +273,12 @@ def run() -> int:
     try:
         symbols = DEFAULT_SYMBOLS if args.sync_all else [args.symbol]
         timeframes = DEFAULT_TIMEFRAMES if args.sync_all else [args.timeframe]
+        if args.sync_all or args.ticks:
+            tick_symbols = symbols if args.ticks and args.symbol else DEFAULT_SYMBOLS if args.sync_all or args.ticks else symbols
+            if not sync_ticks(tick_symbols, state):
+                failed.append("ticks")
+            if args.ticks and not args.sync_all:
+                return 2 if failed else 0
         for symbol in symbols:
             for timeframe in timeframes:
                 try:

@@ -24,8 +24,8 @@ export const useLivePrices = (enabled) => {
       }
       const quoteTimes = result.prices.map((quote) => new Date(quote.timestamp).getTime()).filter(Number.isFinite);
       pricesRef.current = next;
-      const unavailable = result.prices.some((quote) => ["awaiting_mt5_tick", "stale_mt5_tick", "unavailable"].includes(quote.status));
-      setPrices(next); setMovements(nextMovement); setLastUpdated(quoteTimes.length ? new Date(Math.max(...quoteTimes)).toISOString() : null); setLastScan(result.lastScan); setStatus(unavailable ? "awaiting_mt5_tick" : result.cacheStatus === "stale_during_scan" ? "cached" : "connected"); setError(unavailable ? "MT5 live tick unavailable or stale. Candle close remains separate." : result.errors?.length ? result.errors.map((item) => `${item.symbol}: ${item.error || item.message}`).join("; ") : "");
+      const unavailable = result.prices.some((quote) => ["stale", "unavailable"].includes(quote.status));
+      setPrices(next); setMovements(nextMovement); setLastUpdated(quoteTimes.length ? new Date(Math.max(...quoteTimes)).toISOString() : null); setLastScan(result.lastScan); setStatus(unavailable ? "degraded" : "live"); setError(unavailable ? "MT5 live tick unavailable or stale. Candle close remains separate." : result.errors?.length ? result.errors.map((item) => `${item.symbol}: ${item.error || item.message}`).join("; ") : "");
     } catch (requestError) {
       setStatus("error");
       setError(requestError.response?.data?.error || requestError.message || "Live prices unavailable");

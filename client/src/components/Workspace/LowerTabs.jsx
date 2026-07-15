@@ -3,7 +3,7 @@ import api from "../../services/api";
 import ForwardTestJournal, { PerformanceSummary } from "../Journal/ForwardTestJournal";
 import BacktestingResearch from "../Research/BacktestingResearch";
 
-const TABS = ["Signals", "Zones", "Forward Test Journal", "Performance", "Research", "Alerts", "System"];
+const TABS = ["Signals", "Zones", "Forward Test Journal", "Performance", "Alerts", "System", "Advanced"];
 const date = (value) => value ? new Date(value).toLocaleString() : "—";
 
 export default function LowerTabs({ selectedSymbol, collapsed, onToggleCollapsed, journalRefreshToken, systemHealth }) {
@@ -31,7 +31,7 @@ export default function LowerTabs({ selectedSymbol, collapsed, onToggleCollapsed
       {tab === "Zones" && <table><thead><tr><th>Time</th><th>Symbol</th><th>Type</th><th>Status</th><th>Range</th><th>Strength</th></tr></thead><tbody>{zones.slice(0, 30).map((z) => <tr key={z.id}><td>{date(z.created_at)}</td><td>{z.symbol}</td><td>{z.zone_type}</td><td>{z.status}</td><td>{z.zone_low} – {z.zone_high}</td><td>{z.strength || "—"}</td></tr>)}</tbody></table>}
       {tab === "Forward Test Journal" && <ForwardTestJournal selectedSymbol={selectedSymbol} refreshToken={journalRefreshToken} />}
       {tab === "Performance" && <PerformanceSummary performance={data.performance} />}
-      {tab === "Research" && <BacktestingResearch selectedSymbol={selectedSymbol} />}
+      {tab === "Advanced" && <BacktestingResearch selectedSymbol={selectedSymbol} />}
       {tab === "Alerts" && <table><thead><tr><th>Time</th><th>Symbol</th><th>Severity</th><th>Event</th><th>Message</th></tr></thead><tbody>{alerts.slice(0, 50).map((a) => <tr key={a.id}><td>{date(a.created_at)}</td><td>{a.symbol}</td><td>{a.severity}</td><td>{a.alert_type}</td><td>{a.message}</td></tr>)}</tbody></table>}
       {tab === "System" && <div className="system-grid"><span>Backend <strong>{systemHealth?.backend || "unavailable"}</strong></span><span>Database <strong>{systemHealth?.database_status || "unavailable"}</strong></span><span>Provider <strong>{systemHealth?.providerLabel || "—"}</strong></span><span>Bridge <strong>{systemHealth?.bridge?.status || "—"}</strong></span><span>Last scan <strong>{systemHealth?.lastScan?.lastStatus || "—"}</strong></span><span>Last success <strong>{date(systemHealth?.lastScan?.lastSuccessfulScanAt)}</strong></span>{systemHealth?.lastScan?.latestScanError && <span className="wide">Latest error <strong>{systemHealth.lastScan.latestScanError}</strong></span>}</div>}
     </div>}

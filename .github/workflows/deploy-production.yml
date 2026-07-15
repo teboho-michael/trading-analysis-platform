@@ -1,0 +1,34 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch:
+
+concurrency:
+  group: trading-analysis-platform-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/production'
+    runs-on:
+      - self-hosted
+      - windows
+      - production
+      - trading-analysis-platform
+    steps:
+      - name: Verify runner branch
+        shell: powershell
+        run: |
+          if ("${{ github.ref_name }}" -ne "production") {
+            throw "Deployment is only allowed from production."
+          }
+      - name: Deploy exact commit
+        shell: powershell
+        run: |
+          C:\TradingAnalysisPlatform\repo\deployment\windows-vps\deploy-production.ps1 `
+            -RepoRoot "C:\TradingAnalysisPlatform\repo" `
+            -CommitSha "${{ github.sha }}" `
+            -ProductionBranch "production"

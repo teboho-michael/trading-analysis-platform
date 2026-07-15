@@ -38,5 +38,6 @@ $startupCommand = if ($CloudflaredConfig) {
 
 Register-PlatformTask -Name "BackendStartup" -Command $startupCommand -Trigger (New-ScheduledTaskTrigger -AtStartup)
 Register-PlatformTask -Name "MT5BridgeCollection" -Command "& '$PythonLauncher' '$RepoRoot\tools\mt5_bridge\mt5_candle_bridge.py' --sync-all" -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Days 3650))
+Register-PlatformTask -Name "MT5LiveTicks" -Command "& '$PythonLauncher' '$RepoRoot\tools\mt5_bridge\mt5_candle_bridge.py' --ticks" -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650))
 Register-PlatformTask -Name "DailyBackup" -Command "& '$ScriptRoot\backup-platform.ps1' -BackupRoot '$BackupRoot'" -Trigger (New-ScheduledTaskTrigger -Daily -At 2am)
 Register-PlatformTask -Name "HealthCheck" -Command "& '$ScriptRoot\health-check.ps1' -RepoRoot '$RepoRoot'" -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650))

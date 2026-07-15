@@ -18,13 +18,14 @@ try {
   $health = Invoke-RestMethod -Uri "$BackendUrl/api/system/health" -TimeoutSec 10
   Report "PASS" "backend" $health.application_status
   Report "PASS" "database" $health.database_status
-  if ($health.stale_data_warnings.Count -gt 0) { Report "WARN" "mt5-freshness" "$($health.stale_data_warnings.Count) stale symbol/timeframes" } else { Report "PASS" "mt5-freshness" "freshness check returned no warnings" }
+  Report "PASS" "mt5-ticks" $health.mt5_tick_status
+  if ($health.stale_warnings.Count -gt 0) { Report "WARN" "mt5-freshness" "$($health.stale_warnings.Count) stale warnings" } else { Report "PASS" "mt5-freshness" "freshness check returned no warnings" }
 } catch {
   Report "FAIL" "backend" $_.Exception.Message
 }
 
-$cloudflared = Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue
-if ($cloudflared) { Report "PASS" "cloudflared" "running" } else { Report "WARN" "cloudflared" "not running" }
+$tailscale = Get-Command "tailscale" -ErrorAction SilentlyContinue
+if ($tailscale) { Report "PASS" "tailscale" "installed" } else { Report "WARN" "tailscale" "not installed" }
 
 $drive = Get-PSDrive -Name C
 if ($drive.Free -lt 10GB) { Report "WARN" "disk" "free space below 10GB" } else { Report "PASS" "disk" "$([math]::Round($drive.Free / 1GB, 2)) GB free" }

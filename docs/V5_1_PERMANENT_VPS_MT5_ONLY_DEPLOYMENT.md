@@ -17,13 +17,14 @@ V5.1 moves the platform toward a permanent Windows VPS runtime. The laptop is de
 Windows VPS
   MetaTrader 5 desktop
   tools/mt5_bridge/mt5_candle_bridge.py --sync-all
+  tools/mt5_bridge/mt5_candle_bridge.py --ticks
   Node backend on localhost
   PostgreSQL on localhost/private interface only
   cloudflared named tunnel or Tailscale private access
   deployment/windows-vps/*.ps1
 ```
 
-Internal services should bind to localhost or private interfaces. PostgreSQL must never be exposed publicly. Backend/frontend access should go through Cloudflare Access on a named tunnel or through Tailscale/private networking.
+Internal services should bind to localhost or private interfaces. PostgreSQL must never be exposed publicly. Backend/frontend access should use Tailscale private networking for stable phone access. Cloudflare Quick Tunnel is only an optional temporary diagnostic path.
 
 ## Startup And Recovery
 
@@ -33,7 +34,7 @@ Internal services should bind to localhost or private interfaces. PostgreSQL mus
 4. Register scheduled tasks with `deployment/windows-vps/register-scheduled-tasks.ps1`.
 5. Use `deployment/windows-vps/health-check.ps1` after reboot and after any deployment.
 
-To verify laptop independence, shut down the laptop and confirm from phone or another private device that the Cloudflare Access or Tailscale URL reaches the platform and `/api/system/health` reports the VPS services.
+To verify laptop independence, shut down the laptop and confirm from phone or another private device that the Tailscale private address reaches the platform and `/api/system/health` reports the VPS services.
 
 ## Backups And Restore
 
@@ -43,12 +44,66 @@ Restore uses `deployment/windows-vps/restore-platform.ps1 -BackupFile <dump> -Co
 
 ## Phone Access
 
-Preferred options:
+Preferred production access:
 
-- Cloudflare named tunnel with Cloudflare Access authentication.
 - Tailscale private device access.
 
+Optional diagnostic access:
+
+- Cloudflare Quick Tunnel or named tunnel with Cloudflare Access authentication, used only for short troubleshooting windows.
+
 Do not publish an unauthenticated public website. Keep database access private and use the private access layer only for the application surface.
+
+### Tailscale Setup
+
+Run these steps on the Windows VPS:
+
+```powershell
+winget install tailscale.tailscale
+tailscale up
+.\deployment\windows-vps\setup-tailscale.ps1
+.\deployment\windows-vps\verify-private-access.ps1
+```
+
+Install Tailscale on the phone, sign into the same tailnet, then open the printed private URL, for example `http://100.x.y.z:5000`. After shutting down the laptop, refresh the phone page and run:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/system/health"
+```
+
+After a VPS reboot, confirm scheduled tasks restarted the backend, candle sync, and live tick sync:
+
+```powershell
+Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" | Select-Object TaskName,State
+.\deployment\windows-vps\verify-private-access.ps1
+```
+
+## Automatic Production Deployment
+
+Production deployment uses a self-hosted GitHub Actions runner on the Windows VPS. The workflow is `.github/workflows/deploy-production.yml` and only runs from the `production` branch.
+
+Promotion flow:
+
+```text
+final-core-operational-release
+→ review and test
+→ merge to production
+→ automatic VPS deployment
+```
+
+Install the runner without storing tokens in Git:
+
+```powershell
+.\deployment\windows-vps\install-github-runner.ps1 -RepoUrl "https://github.com/OWNER/REPO"
+```
+
+Use the one-time GitHub runner token interactively on the VPS. The deployment script preserves `.env` and local private config, checks the exact repo root, checks out the exact commit, stops only platform-owned processes, installs dependencies, builds the frontend, runs the existing migration process when present, restarts the platform, and fails if health checks fail.
+
+Rollback uses the last recorded successful commit:
+
+```powershell
+.\deployment\windows-vps\rollback-production.ps1 -RepoRoot "C:\TradingAnalysisPlatform\repo"
+```
 
 ## Verification
 
@@ -90,9 +145,10 @@ Run these steps on the Windows VPS after deployment or after changing scheduled 
 $LASTEXITCODE
 ```
 
-5. Run one read-only MT5 candle sync:
+5. Run one read-only MT5 live tick sync and one closed-candle sync:
 
 ```powershell
+& (Get-Command py).Source "C:\TradingAnalysisPlatform\repo\tools\mt5_bridge\mt5_candle_bridge.py" --ticks
 & (Get-Command py).Source "C:\TradingAnalysisPlatform\repo\tools\mt5_bridge\mt5_candle_bridge.py" --symbol USDJPY --timeframe H1
 ```
 
@@ -102,7 +158,7 @@ $LASTEXITCODE
 Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/system/health"
 ```
 
-7. Verify phone or browser access through the private access layer only. Use the Cloudflare Access protected URL or the Tailscale private address. Do not expose PostgreSQL or an unauthenticated public site.
+7. Verify phone or browser access through Tailscale. Cloudflare Quick Tunnel is only for temporary diagnostics. Do not expose PostgreSQL or an unauthenticated public site.
 
 8. Run a backup:
 

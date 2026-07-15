@@ -54,7 +54,7 @@ export default function Watchlist({
               onClick={() => onSelect(symbol)}
             >
               <span className="watchlist-identity">
-                <strong><i className={`live-dot${livePrices?.[symbol] ? " online" : ""}`} aria-hidden="true" />{symbol}</strong>
+                <strong><i className={`live-dot${livePrices?.[symbol]?.status === "live" ? " online" : ""}`} aria-hidden="true" />{symbol}</strong>
                 <small>{instrument.name}</small>
                 {asset?.instrument?.brokerSymbol && <em>{asset.instrument.brokerSymbol}</em>}
               </span>
@@ -68,7 +68,7 @@ export default function Watchlist({
                 >
                   {displayBias || "Neutral"}
                 </small>
-                <small className={`stage-badge stage-${String(asset?.setupStage || "wait").toLowerCase()}`}>{asset?.setupStage || "WAIT"} · {asset?.qualityScore ?? 0}</small>
+                <small className={`stage-badge stage-${String(asset?.setupStage || "wait").toLowerCase()}`}>{livePrices?.[symbol]?.status || "unavailable"} · {asset?.setupStage || "WAIT"} · {asset?.qualityScore ?? 0}</small>
               </span>
             </button>
           );

@@ -24,7 +24,7 @@ export default function TradingChartPanel({
   const latestPrice = liveQuote?.price ?? candles.at(-1)?.close;
   const isForming = candles.at(-1)?.isForming === true;
   const activeZone =
-    selectedAssetData?.activeZone?.status === "active" &&
+    ["active", "approaching", "inside", "tested"].includes(selectedAssetData?.activeZone?.status) &&
     !selectedAssetData.activeZone.broken_at &&
     !selectedAssetData.activeZone.mitigated_at
       ? selectedAssetData.activeZone
@@ -87,7 +87,7 @@ export default function TradingChartPanel({
 
       <div className="chart-context" aria-live="polite">
         <span className="latest-quote">
-          <small>Latest close</small>
+          <small>Live price</small>
           <strong>{latestPrice ?? "—"}</strong>
         </span>
         <span>
@@ -113,7 +113,7 @@ export default function TradingChartPanel({
         </p>
       )}
 
-      {["awaiting_mt5_tick", "stale_mt5_tick", "unavailable"].includes(liveQuote?.status) && !message && (
+      {["stale", "unavailable"].includes(liveQuote?.status) && !message && (
         <p className="status-message error" role="status">
           {liveQuote?.message || "MT5 live tick is unavailable. Latest candle close is shown separately."}
         </p>

@@ -1,35 +1,6 @@
 const pool = require("../db/connection");
-const { calculateTrendFromCandles } = require("../analysis/trendEngine");
-const { calculateRiskLevels } = require("../analysis/riskEngine");
-const { updateZoneLifecycle } = require("../services/zoneLifecycleService");
-const { getActiveZone } = require("../services/zoneService");
-const { evaluateSetupQuality } = require("../analysis/setupQualityEngine");
 const { getInstrument } = require("../market/instrumentRegistry");
-const { MT5_SOURCE } = require("../services/mt5MarketMetadataService");
-
-const ZONE_PROXIMITY_PERCENT = 0.003; // 0.3%
-
-const fetchCandles = async (assetId, timeframe) => {
-  const result = await pool.query(
-    `
-        SELECT open, high, low, close, volume, candle_time
-        FROM candles
-        WHERE asset_id = $1
-        AND timeframe = $2
-        AND source = $3
-        ORDER BY candle_time DESC
-        LIMIT 300
-        `,
-    [assetId, timeframe, MT5_SOURCE],
-  );
-
-  return result.rows;
-};
-
-const getTrend = async (assetId, timeframe) => {
-  const candles = await fetchCandles(assetId, timeframe);
-  return calculateTrendFromCandles(candles, 200);
-};
+const { buildSetup, setupToDashboardFields } = require("../services/coreSetupService");
 
 const getLatestSignal = async (assetId) => {
   const result = await pool.query(
@@ -47,114 +18,20 @@ const getLatestSignal = async (assetId) => {
   return result.rows[0] || null;
 };
 
-const getZoneProximity = (price, zone) => {
-  if (!price || !zone) {
-    return {
-      isNearZone: false,
-      distanceFromZone: null,
-      distancePercent: null,
-      zoneBuffer: null,
-    };
-  }
-
-  const zoneHigh = Number(zone.zone_high);
-  const zoneLow = Number(zone.zone_low);
-  const currentPrice = Number(price);
-
-  const zoneBuffer = currentPrice * ZONE_PROXIMITY_PERCENT;
-
-  const upperBoundary = zoneHigh + zoneBuffer;
-  const lowerBoundary = zoneLow - zoneBuffer;
-
-  const isNearZone =
-    currentPrice >= lowerBoundary && currentPrice <= upperBoundary;
-
-  let distanceFromZone = 0;
-
-  if (currentPrice > zoneHigh) {
-    distanceFromZone = currentPrice - zoneHigh;
-  } else if (currentPrice < zoneLow) {
-    distanceFromZone = zoneLow - currentPrice;
-  }
-
-  const distancePercent = (distanceFromZone / currentPrice) * 100;
-
-  return {
-    isNearZone,
-    distanceFromZone: Number(distanceFromZone.toFixed(2)),
-    distancePercent: Number(distancePercent.toFixed(2)),
-    zoneBuffer: Number(zoneBuffer.toFixed(2)),
-  };
-};
-
 const buildAssetAnalysis = async (asset) => {
-  const daily = await getTrend(asset.id, "D1");
-  const h4 = await getTrend(asset.id, "H4");
-  const h1 = await getTrend(asset.id, "H1");
-
-  const zoneLifecycle = await updateZoneLifecycle(asset.id);
-  const activeZone = await getActiveZone(asset.id);
   const latestSignal = await getLatestSignal(asset.id);
-
-  const latestPrice = h1.lastClose;
-  const zoneProximity = getZoneProximity(latestPrice, activeZone);
-
-  const bullishConfluence =
-    daily.trend === "Bullish" &&
-    h4.trend === "Bullish" &&
-    h1.trend === "Bullish";
-
-  const bearishConfluence =
-    daily.trend === "Bearish" &&
-    h4.trend === "Bearish" &&
-    h1.trend === "Bearish";
-
-  let signal = "WAIT";
-  let signalReason = "No valid setup";
-
-  if (!activeZone) {
-    signalReason = "No active H4 zone";
-  } else if (!zoneProximity.isNearZone) {
-    signalReason = `Price is too far from ${activeZone.zone_type} zone`;
-  } else if (bullishConfluence && activeZone.zone_type === "demand") {
-    signal = "BUY SETUP";
-    signalReason = "Bullish confluence and price near demand zone";
-  } else if (bearishConfluence && activeZone.zone_type === "supply") {
-    signal = "SELL SETUP";
-    signalReason = "Bearish confluence and price near supply zone";
-  } else {
-    signalReason = "Trend confluence does not match active zone type";
-  }
-
-  const risk = calculateRiskLevels(
-    asset.symbol,
-    signal,
-    latestPrice,
-    activeZone,
-  );
-
+  const setup = await buildSetup(asset.symbol);
   const status =
-    signal === "BUY SETUP" || signal === "SELL SETUP" ? "Active" : "Monitoring";
-
-  const setupQuality = evaluateSetupQuality({ daily, h4, h1, activeZone, zoneProximity, risk, duplicateSignal: Boolean(latestSignal && latestSignal.zone_id === activeZone?.id) });
+    setup.signal === "BUY" || setup.signal === "SELL" ? "Active" : "Monitoring";
   const instrument = getInstrument(asset.symbol);
   return {
     id: asset.id,
     symbol: asset.symbol,
     name: asset.name,
     status,
-    latestPrice,
-    dailyBias: daily.trend,
-    h4Bias: h4.trend,
-    h1Trend: h1.trend,
-    activeZone,
-    zoneLifecycle,
-    zoneProximity,
-    signal,
-    signalReason,
-    risk,
+    latestPrice: setup.live_price,
     latestSignal,
-    ...setupQuality,
+    ...setupToDashboardFields(setup),
     instrument: {
       platformSymbol: instrument.platformSymbol,
       symbol: instrument.symbol,

@@ -1,5 +1,4 @@
 const pool = require("../db/connection");
-const mt5Provider = require("../market/providers/mt5BrokerProvider");
 const { getSafeInstruments, normalizeProviderMode, PROVIDER_LABELS } = require("../market/instrumentRegistry");
 const { getScanStatus } = require("../services/scanStatusService");
 const { MT5_SOURCE, candleCountsBySource, evidencePolicy } = require("../services/mt5EvidencePolicy");
@@ -12,8 +11,7 @@ const getInstruments = (req, res) => res.json({ success: true, instruments: getS
 
 const bridgeStatus = async (mode) => {
   if (mode !== "broker_mt5") return { required: false, status: "not_applicable" };
-  try { return { required: true, status: "available", details: await mt5Provider.getHealth() }; }
-  catch (error) { return { required: true, status: "unavailable", error: error.message }; }
+  return { required: true, status: "available", details: "MT5 bridge runs through authenticated import endpoints for ticks and closed candles." };
 };
 
 const providerStatus = async (req, res) => {
@@ -27,12 +25,37 @@ const health = async (req, res) => {
   let database = "available";
   try { await pool.query("SELECT 1"); } catch (_error) { database = "unavailable"; }
   const bridge = await bridgeStatus(mode);
-  const healthy = database === "available" && bridge.status !== "unavailable";
+  let latestTicks = [];
+  let latestZoneUpdate = null;
+  let latestSetupUpdate = null;
+  let tickStatus = "unavailable";
   const lastScan = database === "available" ? await getScanStatus() : null;
   let latestMt5Candles = [];
   let nonMt5CandleCounts = [];
   let latestBridgeRuns = [];
   if (database === "available") {
+    latestTicks = (await pool.query(
+      `
+        SELECT DISTINCT ON (platform_symbol)
+          platform_symbol,
+          broker_symbol,
+          bid,
+          ask,
+          last,
+          display_price,
+          spread,
+          tick_time,
+          received_at,
+          CASE WHEN tick_time < CURRENT_TIMESTAMP - INTERVAL '180 seconds' THEN 'stale' ELSE 'available' END AS status,
+          EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - tick_time))::int AS age_seconds,
+          source
+        FROM live_ticks
+        ORDER BY platform_symbol,tick_time DESC,received_at DESC
+      `,
+    )).rows;
+    tickStatus = latestTicks.some((tick) => tick.status === "available") ? (latestTicks.length === getSafeInstruments().length ? "available" : "degraded") : "unavailable";
+    latestZoneUpdate = (await pool.query("SELECT MAX(updated_at) AS latest_zone_update FROM zones WHERE source=$1", [MT5_SOURCE])).rows[0]?.latest_zone_update || null;
+    latestSetupUpdate = (await pool.query("SELECT MAX(calculated_at) AS latest_setup_update FROM core_ema_states WHERE source=$1", [MT5_SOURCE])).rows[0]?.latest_setup_update || null;
     latestMt5Candles = (await pool.query(
       `
         SELECT
@@ -105,26 +128,39 @@ const health = async (req, res) => {
   const staleWarnings = latestMt5Candles
     .filter((item) => ["delayed", "stale", "missing", "awaiting_first_sync"].includes(item.freshness))
     .map((item) => ({ symbol: item.symbol, timeframe: item.timeframe, status: item.freshness, latest_candle_time: item.latest_candle_time, latest_closed_candle_time: item.latest_closed_candle_time, reason: item.reason }));
+  staleWarnings.push(...latestTicks.filter((tick) => tick.status !== "available").map((tick) => ({ symbol: tick.platform_symbol, status: tick.status, latest_tick_time: tick.tick_time, reason: "MT5 live tick stale or missing" })));
   const bridgeLastSuccess = latestBridgeRuns.reduce((latest, item) => {
     if (!latest) return item.completed_at;
     return new Date(item.completed_at) > new Date(latest) ? item.completed_at : latest;
   }, null);
-  res.status(healthy ? 200 : 503).json({
-    success: healthy,
-    application_status: healthy ? "available" : "degraded",
+  const applicationStatus = database === "unavailable" ? "unavailable" : tickStatus === "available" && staleWarnings.length === 0 ? "available" : "degraded";
+  res.status(database === "unavailable" ? 503 : 200).json({
+    success: database === "available",
+    application_status: applicationStatus,
     backend: "available",
     database_status: database,
+    mt5_terminal_status: tickStatus === "unavailable" ? "unavailable" : "available",
+    mt5_tick_status: tickStatus,
+    mt5_bridge_status: bridge.status,
+    mt5_only_mode: true,
     mt5_only_mode_enabled: true,
     providerMode: mode,
     providerLabel: PROVIDER_LABELS[mode],
     bridge,
     bridge_last_success: bridgeLastSuccess,
     latest_bridge_runs: latestBridgeRuns,
+    latest_tick_by_symbol: latestTicks,
     latest_mt5_candles: latestMt5Candles,
+    latest_candle_by_symbol_timeframe: latestMt5Candles,
+    latest_zone_update: latestZoneUpdate,
+    latest_setup_update: latestSetupUpdate,
+    stale_warnings: staleWarnings,
     stale_data_warnings: staleWarnings,
     non_mt5_candle_counts: nonMt5CandleCounts,
     lastScan,
+    uptime: Math.round(process.uptime()),
     uptime_seconds: Math.round(process.uptime()),
+    server_timestamp: new Date().toISOString(),
     timestamp: new Date().toISOString(),
     ...evidencePolicy(),
   });

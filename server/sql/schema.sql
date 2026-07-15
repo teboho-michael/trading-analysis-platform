@@ -1284,6 +1284,96 @@ ALTER TABLE ONLY public.signals
 ALTER TABLE ONLY public.zones
     ADD CONSTRAINT zones_asset_id_fkey FOREIGN KEY (asset_id) REFERENCES public.assets(id) ON DELETE CASCADE;
 
+--
+-- V5 final core operational state additions from migration 015
+--
+
+CREATE TABLE IF NOT EXISTS public.live_ticks (
+    id integer NOT NULL,
+    platform_symbol character varying(20) NOT NULL,
+    broker_symbol character varying(64) NOT NULL,
+    bid numeric(24,10),
+    ask numeric(24,10),
+    last numeric(24,10),
+    display_price numeric(24,10) NOT NULL,
+    spread numeric(24,10),
+    tick_time timestamp without time zone NOT NULL,
+    received_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    freshness character varying(32) DEFAULT 'live'::character varying NOT NULL,
+    status character varying(32) DEFAULT 'live'::character varying NOT NULL,
+    source character varying(32) DEFAULT 'mt5_broker'::character varying NOT NULL,
+    raw_payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT live_ticks_positive_display_price CHECK ((display_price > (0)::numeric)),
+    CONSTRAINT live_ticks_source_check CHECK (((source)::text = 'mt5_broker'::text))
+);
+
+CREATE SEQUENCE IF NOT EXISTS public.live_ticks_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.live_ticks_id_seq OWNED BY public.live_ticks.id;
+ALTER TABLE ONLY public.live_ticks ALTER COLUMN id SET DEFAULT nextval('public.live_ticks_id_seq'::regclass);
+ALTER TABLE ONLY public.live_ticks ADD CONSTRAINT live_ticks_pkey PRIMARY KEY (id);
+CREATE INDEX IF NOT EXISTS idx_live_ticks_symbol_received ON public.live_ticks USING btree (platform_symbol, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_live_ticks_symbol_tick_time ON public.live_ticks USING btree (platform_symbol, tick_time DESC);
+
+CREATE TABLE IF NOT EXISTS public.core_ema_states (
+    id integer NOT NULL,
+    platform_symbol character varying(20) NOT NULL,
+    broker_symbol character varying(64) NOT NULL,
+    timeframe character varying(10) NOT NULL,
+    latest_closed_price numeric(24,10),
+    ema_200 numeric(24,10),
+    price_above_ema boolean,
+    price_below_ema boolean,
+    distance_from_ema numeric(24,10),
+    trend_state character varying(32) NOT NULL,
+    calculated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    candle_time timestamp without time zone,
+    source character varying(32) DEFAULT 'mt5_broker'::character varying NOT NULL,
+    CONSTRAINT core_ema_states_source_check CHECK (((source)::text = 'mt5_broker'::text))
+);
+
+CREATE SEQUENCE IF NOT EXISTS public.core_ema_states_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.core_ema_states_id_seq OWNED BY public.core_ema_states.id;
+ALTER TABLE ONLY public.core_ema_states ALTER COLUMN id SET DEFAULT nextval('public.core_ema_states_id_seq'::regclass);
+ALTER TABLE ONLY public.core_ema_states ADD CONSTRAINT core_ema_states_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.core_ema_states ADD CONSTRAINT core_ema_states_platform_symbol_timeframe_key UNIQUE (platform_symbol, timeframe);
+
+ALTER TABLE public.zones
+  ADD COLUMN IF NOT EXISTS broker_symbol character varying(64),
+  ADD COLUMN IF NOT EXISTS origin_time timestamp without time zone,
+  ADD COLUMN IF NOT EXISTS origin_candle_index integer,
+  ADD COLUMN IF NOT EXISTS base_start_time timestamp without time zone,
+  ADD COLUMN IF NOT EXISTS base_end_time timestamp without time zone,
+  ADD COLUMN IF NOT EXISTS departure_strength numeric(12,4),
+  ADD COLUMN IF NOT EXISTS quality_score numeric(12,4),
+  ADD COLUMN IF NOT EXISTS test_count integer DEFAULT 0 NOT NULL,
+  ADD COLUMN IF NOT EXISTS distance_from_live_price numeric(24,10),
+  ADD COLUMN IF NOT EXISTS updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  ADD COLUMN IF NOT EXISTS invalidated_at timestamp without time zone,
+  ADD COLUMN IF NOT EXISTS invalidation_reason text,
+  ADD COLUMN IF NOT EXISTS source character varying(32) DEFAULT 'mt5_broker'::character varying NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_zones_core_active ON public.zones USING btree (asset_id, timeframe, status, updated_at DESC);
+
+ALTER TABLE public.alert_events
+  ADD COLUMN IF NOT EXISTS dedupe_key character varying(255),
+  ADD COLUMN IF NOT EXISTS resolved_at timestamp without time zone;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_events_dedupe_open ON public.alert_events USING btree (dedupe_key) WHERE ((dedupe_key IS NOT NULL) AND (resolved_at IS NULL));
+
 
 --
 -- PostgreSQL database dump complete

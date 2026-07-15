@@ -8,4 +8,18 @@ const read = async (req, res, latest = false) => {
 };
 const getAlertHistory = (req, res) => read(req, res, false);
 const getLatestAlerts = (req, res) => read(req, res, true);
-module.exports = { getAlertHistory, getLatestAlerts };
+const acknowledgeAlert = async (req, res) => {
+  try {
+    const result = await pool.query("UPDATE alert_events SET acknowledged_at=COALESCE(acknowledged_at,CURRENT_TIMESTAMP) WHERE id=$1 RETURNING *", [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ success: false, error: "Alert not found" });
+    res.json({ success: true, alert: result.rows[0] });
+  } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+};
+const resolveAlert = async (req, res) => {
+  try {
+    const result = await pool.query("UPDATE alert_events SET resolved_at=COALESCE(resolved_at,CURRENT_TIMESTAMP) WHERE id=$1 RETURNING *", [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ success: false, error: "Alert not found" });
+    res.json({ success: true, alert: result.rows[0] });
+  } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+};
+module.exports = { getAlertHistory, getLatestAlerts, acknowledgeAlert, resolveAlert };

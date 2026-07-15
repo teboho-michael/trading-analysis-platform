@@ -36,10 +36,11 @@ Start-OwnedProcess -Name "backend" -FilePath $PowerShellExe -Arguments "-NoProfi
 
 $bridgeScript = Join-Path $RepoRoot "tools\mt5_bridge\mt5_candle_bridge.py"
 Start-OwnedProcess -Name "mt5-bridge-sync" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:mt5-bridge-sync'; & '$PythonLauncher' '$bridgeScript' --sync-all`"" -WorkingDirectory (Split-Path $bridgeScript)
+Start-OwnedProcess -Name "mt5-live-ticks" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:mt5-live-ticks'; while (`$true) { & '$PythonLauncher' '$bridgeScript' --ticks; Start-Sleep -Seconds 15 }`"" -WorkingDirectory (Split-Path $bridgeScript)
 
 if ($CloudflaredConfig -and (Test-Path $CloudflaredConfig)) {
   $CloudflaredExe = (Get-Command "cloudflared" -ErrorAction Stop).Source
   Start-OwnedProcess -Name "cloudflared" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:cloudflared'; & '$CloudflaredExe' tunnel --config '$CloudflaredConfig' run`"" -WorkingDirectory $RepoRoot
 } else {
-  Write-Host "WARN cloudflared config not supplied; private tunnel not started"
+  Write-Host "WARN cloudflared config not supplied; Cloudflare diagnostic tunnel not started. Use Tailscale for stable private access."
 }
