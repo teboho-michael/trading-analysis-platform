@@ -9,7 +9,7 @@ const STATUS = {
 };
 
 const staleAfterSeconds = () => Math.max(Number(process.env.MT5_TICK_STALE_AFTER_SECONDS || 180), 30);
-const futureToleranceSeconds = () => Math.max(Number(process.env.MT5_TICK_FUTURE_TOLERANCE_SECONDS || 5), 1);
+const skewToleranceSeconds = () => Math.max(Number(process.env.MT5_TICK_SKEW_TOLERANCE_SECONDS || process.env.MT5_TICK_FUTURE_TOLERANCE_SECONDS || 60), 5);
 const round = (value, digits = 10) => Number(Number(value).toFixed(digits));
 const isPositive = (value) => Number.isFinite(Number(value)) && Number(value) > 0;
 const normalizeSymbol = (value) => String(value || "").trim().toUpperCase();
@@ -25,16 +25,35 @@ const displayPriceFrom = ({ bid, ask, last }) => {
   return null;
 };
 
-const classifyTick = (tickTime, now = new Date()) => {
+const classifyTick = (tickTime, receivedAt = new Date(), now = new Date()) => {
   const parsed = new Date(tickTime);
-  const rawAgeSeconds = Math.floor((now.getTime() - parsed.getTime()) / 1000);
-  const ageSeconds = Math.max(0, rawAgeSeconds);
-  if (!Number.isFinite(ageSeconds)) return { freshness: "missing", status: STATUS.UNAVAILABLE, age_seconds: null };
-  if (rawAgeSeconds < -futureToleranceSeconds()) {
-    return { freshness: "future_timestamp", status: STATUS.STALE, age_seconds: 0, warning: "MT5 tick timestamp is ahead of server receipt time beyond tolerance." };
+  const received = new Date(receivedAt);
+  const eventAgeSeconds = Math.floor((now.getTime() - parsed.getTime()) / 1000);
+  const receivedAgeSeconds = Math.floor((now.getTime() - received.getTime()) / 1000);
+  const clockSkewSeconds = Math.floor((parsed.getTime() - received.getTime()) / 1000);
+  if (![eventAgeSeconds, receivedAgeSeconds, clockSkewSeconds].every(Number.isFinite)) {
+    return { freshness: "missing", status: STATUS.UNAVAILABLE, is_fresh: false, age_seconds: null, received_age_seconds: null, clock_skew_seconds: null };
   }
-  if (ageSeconds > staleAfterSeconds()) return { freshness: "stale", status: STATUS.STALE, age_seconds: ageSeconds };
-  return { freshness: "live", status: STATUS.LIVE, age_seconds: ageSeconds };
+  const safeEventAge = Math.max(0, eventAgeSeconds);
+  const safeReceivedAge = Math.max(0, receivedAgeSeconds);
+  if (clockSkewSeconds > skewToleranceSeconds()) {
+    return {
+      freshness: "future_timestamp",
+      status: STATUS.STALE,
+      is_fresh: false,
+      age_seconds: safeEventAge,
+      received_age_seconds: safeReceivedAge,
+      clock_skew_seconds: clockSkewSeconds,
+      warning: "MT5 tick timestamp is ahead of receipt time beyond tolerance.",
+    };
+  }
+  if (Math.abs(clockSkewSeconds) > skewToleranceSeconds()) {
+    return { freshness: "stale", status: STATUS.STALE, is_fresh: false, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
+  }
+  if (safeReceivedAge > staleAfterSeconds()) {
+    return { freshness: "stale", status: STATUS.STALE, is_fresh: false, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
+  }
+  return { freshness: "live", status: STATUS.LIVE, is_fresh: true, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
 };
 
 const parseEpochSeconds = (value) => {
@@ -62,9 +81,9 @@ const parseBrokerFormattedTimeAsUtc = (value) => {
 const normalizeTickTime = (payload, receivedAt = new Date()) => {
   const candidates = [
     parseEpochMilliseconds(payload.time_msc),
+    parseEpochMilliseconds(payload.tick_time_msc),
     parseEpochSeconds(payload.time),
     parseEpochSeconds(payload.tick_time_epoch),
-    parseEpochMilliseconds(payload.tick_time_msc),
   ].filter(Boolean);
   if (candidates.length) return { tickTime: candidates[0], warning: null };
 
@@ -72,13 +91,6 @@ const normalizeTickTime = (payload, receivedAt = new Date()) => {
   const parsed = parseBrokerFormattedTimeAsUtc(rawTickTime) || new Date(rawTickTime);
   if (!rawTickTime || Number.isNaN(parsed.getTime())) throw new Error("Invalid MT5 tick time");
 
-  const aheadSeconds = Math.floor((parsed.getTime() - receivedAt.getTime()) / 1000);
-  if (aheadSeconds > futureToleranceSeconds()) {
-    return {
-      tickTime: receivedAt,
-      warning: `MT5 tick timestamp was ${aheadSeconds}s ahead of server receipt time and was normalized to received_at.`,
-    };
-  }
   return { tickTime: parsed, warning: null };
 };
 
@@ -116,7 +128,7 @@ const importTicks = async (payload) => {
     try {
       const receivedAt = new Date();
       const tick = normalizeTickPayload(ticks[index], receivedAt);
-      const state = classifyTick(tick.tick_time, receivedAt);
+      const state = classifyTick(tick.tick_time, receivedAt, receivedAt);
       const result = await pool.query(
         `INSERT INTO live_ticks
          (platform_symbol,broker_symbol,bid,ask,last,display_price,spread,tick_time,freshness,status,source,raw_payload)
@@ -148,13 +160,17 @@ const unavailableQuote = (symbol, message = "No imported MT5 tick is available")
     received_at: null,
     freshness: "missing",
     status: STATUS.UNAVAILABLE,
+    is_fresh: false,
+    age_seconds: null,
+    received_age_seconds: null,
+    clock_skew_seconds: null,
     source: SOURCE,
     message,
   };
 };
 
 const mapTickRow = (row) => {
-  const state = classifyTick(row.tick_time);
+  const state = classifyTick(row.tick_time, row.received_at);
   return {
     symbol: row.platform_symbol,
     platform_symbol: row.platform_symbol,
@@ -170,8 +186,11 @@ const mapTickRow = (row) => {
     timestamp: row.tick_time,
     received_at: row.received_at,
     age_seconds: state.age_seconds,
+    received_age_seconds: state.received_age_seconds,
+    clock_skew_seconds: state.clock_skew_seconds,
     freshness: state.freshness,
     status: state.status,
+    is_fresh: state.is_fresh,
     source: SOURCE,
     provider: "XM MT5",
     marketStatus: "unknown",
@@ -188,14 +207,25 @@ const getLatestTicks = async (requestedSymbols) => {
     throw error;
   }
   const result = await pool.query(
-    `SELECT DISTINCT ON (platform_symbol) *
+    `SELECT *
      FROM live_ticks
      WHERE platform_symbol = ANY($1)
-     ORDER BY platform_symbol, tick_time DESC, received_at DESC`,
-    [symbols],
+       AND source = $2
+       AND received_at >= CURRENT_TIMESTAMP - INTERVAL '1 day'
+     ORDER BY platform_symbol, received_at DESC, tick_time DESC
+     LIMIT 500`,
+    [symbols, SOURCE],
   );
-  const rowsBySymbol = new Map(result.rows.map((row) => [row.platform_symbol, row]));
-  const prices = symbols.map((symbol) => rowsBySymbol.has(symbol) ? mapTickRow(rowsBySymbol.get(symbol)) : unavailableQuote(symbol));
+  const rowsBySymbol = new Map();
+  for (const row of result.rows) {
+    if (!rowsBySymbol.has(row.platform_symbol)) rowsBySymbol.set(row.platform_symbol, []);
+    rowsBySymbol.get(row.platform_symbol).push(row);
+  }
+  const prices = symbols.map((symbol) => {
+    const rows = rowsBySymbol.get(symbol) || [];
+    const mapped = rows.map(mapTickRow);
+    return mapped.find((quote) => quote.status === STATUS.LIVE && quote.is_fresh) || mapped[0] || unavailableQuote(symbol);
+  });
   const errors = prices.filter((quote) => quote.status !== STATUS.LIVE).map((quote) => ({ symbol: quote.symbol, status: quote.status, error: quote.message || `MT5 tick is ${quote.status}` }));
   return { prices, errors, cacheStatus: "database", cacheTtlMs: 0 };
 };

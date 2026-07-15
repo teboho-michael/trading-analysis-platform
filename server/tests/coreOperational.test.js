@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { calculateEmaStateFromCandles } = require("../services/coreEmaService");
 const { detectH4Zones, classifyZone } = require("../services/coreZoneService");
 const { displayPriceFrom, classifyTick, normalizeTickTime } = require("../services/liveTickService");
-const { nearZone } = require("../services/coreSetupService");
+const { acceptedLivePrice, nearZone } = require("../services/coreSetupService");
 const { classifyCandleFreshness } = require("../services/mt5MarketMetadataService");
 const { buildAlertDedupeKey } = require("../services/alertService");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
@@ -49,9 +49,9 @@ test("live tick display price uses bid/ask midpoint first", () => {
   assert.equal(displayPriceFrom({ bid: 100, ask: null, last: null }), 100);
 });
 
-test("tick classification separates live and stale", () => {
-  assert.equal(classifyTick(new Date().toISOString()).status, "live");
-  assert.equal(classifyTick(new Date(Date.now() - 3600_000).toISOString()).status, "stale");
+test("tick classification separates live and stale using receipt time", () => {
+  assert.equal(classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T00:00:02.000Z")).status, "live");
+  assert.equal(classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T01:00:00.000Z")).status, "stale");
 });
 
 test("EMA 200 uses closed candle set and returns bullish state", () => {
@@ -126,6 +126,26 @@ test("setup proximity requires live price near or inside zone", () => {
   assert.equal(nearZone(200, zone).near, false);
 });
 
+test("zone proximity distance is mathematically correct above below and at boundaries", () => {
+  const zone = { zone_high: 110, zone_low: 100 };
+  assert.deepEqual(
+    { inside: nearZone(100, zone).inside, distance: nearZone(100, zone).distance },
+    { inside: true, distance: 0 },
+  );
+  assert.equal(nearZone(110, zone).distance, 0);
+  assert.equal(nearZone(115, zone).distance, 5);
+  assert.equal(nearZone(95, zone).distance, 5);
+  assert.equal(nearZone(null, zone).distance, null);
+  assert.equal(nearZone(65000, { zone_high: 66000, zone_low: 64000 }).inside, true);
+  assert.equal(nearZone(157.25, { zone_high: 158, zone_low: 156 }).inside, true);
+  assert.ok(Number.isFinite(nearZone(115, zone).threshold));
+});
+
+test("setup live price accepts only fresh MT5 tick prices", () => {
+  assert.equal(acceptedLivePrice({ status: "live", freshness: "live", is_fresh: true, display_price: 123.45 }).price, 123.45);
+  assert.equal(acceptedLivePrice({ status: "stale", freshness: "future_timestamp", is_fresh: false, display_price: 123.45 }).price, null);
+});
+
 test("risk levels produce valid 2R and 3R targets for demand and supply", () => {
   const buy = calculateRiskLevels("XAUUSD", "BUY SETUP", 100, { zone_type: "demand", zone_low: 99, zone_high: 101 });
   assert.ok(buy.stopLoss < buy.entryPrice);
@@ -139,21 +159,25 @@ test("risk levels produce valid 2R and 3R targets for demand and supply", () => 
 });
 
 test("tick age is never negative for current UTC tick", () => {
-  const state = classifyTick(new Date("2026-01-01T00:00:00.000Z"), new Date("2026-01-01T00:00:02.000Z"));
+  const state = classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T00:00:02.000Z"));
   assert.equal(state.status, "live");
   assert.ok(state.age_seconds >= 0);
+  assert.equal(state.received_age_seconds, 1);
+  assert.equal(state.clock_skew_seconds, -1);
+  assert.equal(state.is_fresh, true);
 });
 
 test("stale tick classification works", () => {
-  const state = classifyTick(new Date("2026-01-01T00:00:00.000Z"), new Date("2026-01-01T01:00:00.000Z"));
+  const state = classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T01:00:00.000Z"));
   assert.equal(state.status, "stale");
 });
 
 test("future tick timestamp is handled explicitly", () => {
-  const state = classifyTick(new Date("2026-01-01T00:05:00.000Z"), new Date("2026-01-01T00:00:00.000Z"));
+  const state = classifyTick("2026-01-01T00:05:00.000Z", "2026-01-01T00:00:00.000Z", new Date("2026-01-01T00:00:01.000Z"));
   assert.equal(state.status, "stale");
   assert.equal(state.freshness, "future_timestamp");
   assert.equal(state.age_seconds, 0);
+  assert.equal(state.clock_skew_seconds, 300);
 });
 
 test("broker-local formatted tick time parses without duplicate timezone conversion", () => {
@@ -166,6 +190,18 @@ test("MT5 epoch tick fields are preferred", () => {
   assert.equal(normalized.tickTime.toISOString(), "2026-01-01T00:00:00.000Z");
 });
 
+test("MT5 unix milliseconds convert correctly without a three-hour shift", () => {
+  const normalized = normalizeTickTime({ time_msc: 1767225600123 }, new Date("2026-01-01T00:00:00.000Z"));
+  assert.equal(normalized.tickTime.toISOString(), "2026-01-01T00:00:00.123Z");
+});
+
+test("past ticks remain past and current ticks remain current", () => {
+  const past = classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T00:05:00.000Z"));
+  const current = classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T00:00:10.000Z"));
+  assert.equal(past.status, "stale");
+  assert.equal(current.status, "live");
+});
+
 test("D1 candle during live ticks is not falsely labelled market_closed", () => {
   const state = classifyCandleFreshness({
     timeframe: "D1",
@@ -175,8 +211,29 @@ test("D1 candle during live ticks is not falsely labelled market_closed", () => 
     liveTicksAvailable: true,
     now: new Date("2026-01-02T12:00:00.000Z"),
   });
-  assert.equal(state.freshness, "forming");
+  assert.equal(state.freshness, "forming_current");
   assert.equal(state.market_session_status, "open");
+});
+
+test("H1 and H4 forming candles are current when fresh ticks prove market open", () => {
+  const h1 = classifyCandleFreshness({
+    timeframe: "H1",
+    candleCount: 500,
+    latestClosedCandleTime: "2026-01-01T10:00:00.000Z",
+    latestStoredCandleTime: "2026-01-01T11:00:00.000Z",
+    liveTicksAvailable: true,
+    now: new Date("2026-01-01T11:20:00.000Z"),
+  });
+  const h4 = classifyCandleFreshness({
+    timeframe: "H4",
+    candleCount: 500,
+    latestClosedCandleTime: "2026-01-01T08:00:00.000Z",
+    latestStoredCandleTime: "2026-01-01T12:00:00.000Z",
+    liveTicksAvailable: true,
+    now: new Date("2026-01-01T12:35:00.000Z"),
+  });
+  assert.equal(h1.freshness, "forming_current");
+  assert.equal(h4.freshness, "forming_current");
 });
 
 test("alert dedupe key is stable for identical open alerts and distinct after metadata changes", () => {

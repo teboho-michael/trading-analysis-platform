@@ -15,6 +15,18 @@ const createAlertEvent = async ({ assetId, symbol, alertType, severity = "info",
   return result.rows[0] || null;
 };
 
+const resolveOpenAlerts = async ({ symbol, alertType, reason = "Resolved by fresh MT5 evidence" }) => {
+  const result = await pool.query(
+    `UPDATE alert_events
+     SET resolved_at=COALESCE(resolved_at,CURRENT_TIMESTAMP),
+       metadata=COALESCE(metadata,'{}'::jsonb) || $3::jsonb
+     WHERE symbol=$1 AND alert_type=$2 AND resolved_at IS NULL
+     RETURNING *`,
+    [symbol, alertType, JSON.stringify({ resolution_reason: reason })],
+  );
+  return result.rows;
+};
+
 const recordSetupStage = async ({ assetId, symbol, stage, score, zoneId }) => {
   const previous = await pool.query(`SELECT metadata->>'stage' AS stage FROM alert_events WHERE asset_id=$1 AND alert_type='setup_stage_changed' ORDER BY created_at DESC LIMIT 1`, [assetId]);
   const oldStage = previous.rows[0]?.stage || "WAIT";
@@ -38,4 +50,4 @@ const recordMarketState = async ({ assetId, symbol, h1Trend, isNearZone, zoneId 
   return createAlertEvent({ assetId, symbol, alertType: "market_state_snapshot", severity: "state", message: `${symbol} analysis state recorded`, relatedZoneId: zoneId, metadata: { h1Trend, isNearZone } });
 };
 
-module.exports = { buildAlertDedupeKey, createAlertEvent, recordSetupStage, recordMarketState };
+module.exports = { buildAlertDedupeKey, createAlertEvent, recordSetupStage, recordMarketState, resolveOpenAlerts };

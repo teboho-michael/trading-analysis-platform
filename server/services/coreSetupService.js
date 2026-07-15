@@ -4,24 +4,35 @@ const { calculateRiskLevels } = require("../analysis/riskEngine");
 const { getEmaState, getH1Confirmation } = require("./coreEmaService");
 const { getNearestActiveZone } = require("./coreZoneService");
 const { getLatestTicks } = require("./liveTickService");
-const { buildAlertDedupeKey, createAlertEvent } = require("./alertService");
+const { buildAlertDedupeKey, createAlertEvent, resolveOpenAlerts } = require("./alertService");
 
 const nearZone = (price, zone) => {
-  if (!zone || !Number.isFinite(Number(price))) return { inside: false, near: false, distance: null, distancePercent: null };
+  const numericPrice = Number(price);
+  if (price === null || price === undefined || !zone || !Number.isFinite(numericPrice)) return { inside: false, near: false, isNearZone: false, distance: null, distanceFromZone: null, distancePercent: null, threshold: null };
   const high = Number(zone.zone_high);
   const low = Number(zone.zone_low);
   const width = high - low;
-  const inside = Number(price) >= low && Number(price) <= high;
-  const distance = inside ? 0 : Number(price) < low ? low - Number(price) : Number(price) - high;
-  const buffer = Math.max(width * 1.5, Math.abs(Number(price)) * 0.003);
+  const inside = numericPrice >= low && numericPrice <= high;
+  const distance = inside ? 0 : numericPrice < low ? low - numericPrice : numericPrice - high;
+  const threshold = Math.max(width * 1.5, Math.abs(numericPrice) * 0.003);
+  const near = inside || distance <= threshold;
   return {
     inside,
-    near: inside || distance <= buffer,
-    isNearZone: inside || distance <= buffer,
+    near,
+    isNearZone: near,
     distance,
     distanceFromZone: distance,
-    distancePercent: Number(((distance / Math.abs(Number(price))) * 100).toFixed(4)),
+    distancePercent: Math.abs(numericPrice) > 0 ? Number(((distance / Math.abs(numericPrice)) * 100).toFixed(4)) : null,
+    threshold,
   };
+};
+
+const acceptedLivePrice = (live) => {
+  if (!live || live.status !== "live" || live.freshness !== "live" || live.is_fresh !== true) {
+    return { price: null, reason: live?.message || `MT5 live tick is ${live?.status || "unavailable"}` };
+  }
+  const price = [live.display_price, live.price, live.mid].map(Number).find((value) => Number.isFinite(value) && value > 0);
+  return price ? { price, reason: null } : { price: null, reason: "Fresh MT5 tick has no usable display price" };
 };
 
 const alignedBullish = (state) => ["bullish", "neutral"].includes(state);
@@ -34,7 +45,8 @@ const buildSetup = async (symbol) => {
   if (!asset) throw new Error(`Asset not found: ${symbol}`);
   const ticks = await getLatestTicks([symbol]);
   const live = ticks.prices[0];
-  const livePrice = live.status === "live" ? live.price : null;
+  const livePriceState = acceptedLivePrice(live);
+  const livePrice = livePriceState.price;
   const [d1, h4, h1, h1Confirmation] = await Promise.all([
     getEmaState(symbol, "D1"),
     getEmaState(symbol, "H4"),
@@ -46,7 +58,7 @@ const buildSetup = async (symbol) => {
   const reasonsPassed = [];
   const reasonsFailed = [];
   const pass = (condition, label) => (condition ? reasonsPassed : reasonsFailed).push(label);
-  pass(live.status === "live", "fresh MT5 live tick");
+  pass(livePrice !== null, "fresh MT5 live tick");
   pass(Boolean(zone), "nearest active H4 zone");
   pass(Boolean(zone && ["active", "tested"].includes(zone.status)), "zone is not broken or expired");
   pass(proximity.near, "live price inside or near zone");
@@ -56,12 +68,12 @@ const buildSetup = async (symbol) => {
     pass(alignedBullish(d1.trend_state), "D1 bullish or acceptable aligned bias");
     pass(alignedBullish(h4.trend_state), "H4 bullish or acceptable aligned bias");
     pass(h1Confirmation.trend_state === "bullish", "two closed H1 candles above EMA 200");
-    if (live.status === "live" && proximity.near && alignedBullish(d1.trend_state) && alignedBullish(h4.trend_state) && h1Confirmation.trend_state === "bullish") signal = "BUY";
+    if (livePrice !== null && proximity.near && alignedBullish(d1.trend_state) && alignedBullish(h4.trend_state) && h1Confirmation.trend_state === "bullish") signal = "BUY";
   } else if (zone?.zone_type === "supply") {
     pass(alignedBearish(d1.trend_state), "D1 bearish or acceptable aligned bias");
     pass(alignedBearish(h4.trend_state), "H4 bearish or acceptable aligned bias");
     pass(h1Confirmation.trend_state === "bearish", "two closed H1 candles below EMA 200");
-    if (live.status === "live" && proximity.near && alignedBearish(d1.trend_state) && alignedBearish(h4.trend_state) && h1Confirmation.trend_state === "bearish") signal = "SELL";
+    if (livePrice !== null && proximity.near && alignedBearish(d1.trend_state) && alignedBearish(h4.trend_state) && h1Confirmation.trend_state === "bearish") signal = "SELL";
   } else {
     reasonsFailed.push("BUY/SELL requires demand or supply zone");
   }
@@ -84,6 +96,7 @@ const buildSetup = async (symbol) => {
     zone_id: zone?.id || null,
     zone_type: zone?.zone_type || null,
     live_price: livePrice,
+    live_price_reason: livePriceState.reason,
     live_tick: live,
     reasons_passed: reasonsPassed,
     reasons_failed: reasonsFailed,
@@ -117,7 +130,11 @@ const recordCoreAlerts = async (symbol, setup) => {
     });
     if (event) alerts.push(event);
   };
-  if (setup.live_tick.status !== "live") await emit("data_stale", "important", `${symbol} MT5 live tick is ${setup.live_tick.status}`);
+  if (setup.live_tick.status === "live" && setup.live_tick.is_fresh === true) {
+    await resolveOpenAlerts({ symbol, alertType: "data_stale", reason: "Fresh MT5 tick imported" });
+  } else {
+    await emit("data_stale", "important", `${symbol} MT5 live tick is ${setup.live_tick.status}`);
+  }
   if (setup.activeZone && setup.zoneProximity.near && !setup.zoneProximity.inside) await emit("price_approaching_zone", "info", `${symbol} approaching ${setup.activeZone.zone_type} zone`, setup.activeZone.id);
   if (setup.activeZone && setup.zoneProximity.inside) await emit("price_entering_zone", "important", `${symbol} inside ${setup.activeZone.zone_type} zone`, setup.activeZone.id);
   if (setup.activeZone?.status === "broken") await emit("zone_broken", "important", `${symbol} ${setup.activeZone.zone_type} zone broken`, setup.activeZone.id);
@@ -151,6 +168,7 @@ const setupToDashboardFields = (setup) => ({
 
 module.exports = {
   buildSetup,
+  acceptedLivePrice,
   nearZone,
   recordCoreAlerts,
   setupToDashboardFields,

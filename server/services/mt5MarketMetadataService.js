@@ -88,9 +88,19 @@ const classifyCandleFreshness = ({
   const storedTime = latestStoredCandleTime ? new Date(latestStoredCandleTime).getTime() : NaN;
   const formingCandlePresent = Number.isFinite(storedTime) && storedTime > latestTime;
 
+  if (liveTicksAvailable && formingCandlePresent && ageSeconds <= threshold + TIMEFRAME_SECONDS[timeframe]) {
+    return {
+      freshness: "forming_current",
+      market_session_status: "open",
+      stale_threshold_seconds: threshold,
+      candle_age_seconds: ageSeconds,
+      reason: "Latest stored MT5 candle is forming and the previous closed candle is within the expected timeframe window.",
+    };
+  }
+
   if (timeframe === "D1" && liveTicksAvailable && (formingCandlePresent || ageSeconds <= threshold + TIMEFRAME_SECONDS.D1)) {
     return {
-      freshness: formingCandlePresent ? "forming" : "current",
+      freshness: formingCandlePresent ? "forming_current" : "current",
       market_session_status: "open",
       stale_threshold_seconds: threshold,
       candle_age_seconds: ageSeconds,

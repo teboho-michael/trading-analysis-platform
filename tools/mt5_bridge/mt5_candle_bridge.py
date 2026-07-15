@@ -64,11 +64,11 @@ CANDLE_LIMIT = int(config_value("MT5_BRIDGE_CANDLE_LIMIT", DEFAULT_CANDLE_LIMIT)
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def iso_time(timestamp) -> str:
-    return datetime.fromtimestamp(int(timestamp), timezone.utc).isoformat()
+    return datetime.fromtimestamp(float(timestamp), timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def load_state() -> dict:
@@ -131,7 +131,7 @@ def collect_tick(platform_symbol: str, broker_symbol: str) -> dict:
         "bid": bid,
         "ask": ask,
         "last": last,
-        "tick_time": iso_time(tick.time),
+        "tick_time": iso_time((int(tick.time_msc) / 1000) if getattr(tick, "time_msc", None) else tick.time),
         "time": int(tick.time),
         "time_msc": int(tick.time_msc) if getattr(tick, "time_msc", None) else int(tick.time) * 1000,
         "source": "mt5_broker",
