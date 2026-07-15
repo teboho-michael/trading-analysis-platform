@@ -4,7 +4,7 @@ const { calculateRiskLevels } = require("../analysis/riskEngine");
 const { getEmaState, getH1Confirmation } = require("./coreEmaService");
 const { getNearestActiveZone } = require("./coreZoneService");
 const { getLatestTicks } = require("./liveTickService");
-const { createAlertEvent } = require("./alertService");
+const { buildAlertDedupeKey, createAlertEvent } = require("./alertService");
 
 const nearZone = (price, zone) => {
   if (!zone || !Number.isFinite(Number(price))) return { inside: false, near: false, distance: null, distancePercent: null };
@@ -48,7 +48,7 @@ const buildSetup = async (symbol) => {
   const pass = (condition, label) => (condition ? reasonsPassed : reasonsFailed).push(label);
   pass(live.status === "live", "fresh MT5 live tick");
   pass(Boolean(zone), "nearest active H4 zone");
-  pass(Boolean(zone && ["active", "approaching", "inside", "tested"].includes(zone.status)), "zone is not broken or expired");
+  pass(Boolean(zone && ["active", "tested"].includes(zone.status)), "zone is not broken or expired");
   pass(proximity.near, "live price inside or near zone");
 
   let signal = "WAIT";
@@ -79,8 +79,8 @@ const buildSetup = async (symbol) => {
     stop_loss: risk?.stopLoss || null,
     tp1: risk?.takeProfit1 || null,
     tp2: risk?.takeProfit2 || null,
-    risk_reward_tp1: risk ? 1 : null,
-    risk_reward_tp2: risk ? 2 : null,
+    risk_reward_tp1: risk ? 2 : null,
+    risk_reward_tp2: risk ? 3 : null,
     zone_id: zone?.id || null,
     zone_type: zone?.zone_type || null,
     live_price: livePrice,
@@ -113,7 +113,7 @@ const recordCoreAlerts = async (symbol, setup) => {
       message,
       relatedZoneId: zoneId,
       metadata,
-      dedupeKey: `${symbol}:${type}:${zoneId || "none"}:${JSON.stringify(metadata).slice(0, 80)}`,
+      dedupeKey: buildAlertDedupeKey({ symbol, alertType: type, relatedZoneId: zoneId, metadata }),
     });
     if (event) alerts.push(event);
   };

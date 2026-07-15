@@ -46,8 +46,12 @@ const health = async (req, res) => {
           spread,
           tick_time,
           received_at,
-          CASE WHEN tick_time < CURRENT_TIMESTAMP - INTERVAL '180 seconds' THEN 'stale' ELSE 'available' END AS status,
-          EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - tick_time))::int AS age_seconds,
+          CASE
+            WHEN tick_time > CURRENT_TIMESTAMP + INTERVAL '5 seconds' THEN 'future_timestamp'
+            WHEN tick_time < CURRENT_TIMESTAMP - INTERVAL '180 seconds' THEN 'stale'
+            ELSE 'available'
+          END AS status,
+          GREATEST(0, EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - tick_time))::int) AS age_seconds,
           source
         FROM live_ticks
         ORDER BY platform_symbol,tick_time DESC,received_at DESC
@@ -107,14 +111,16 @@ const health = async (req, res) => {
       latestBridgeRuns = [];
     }
   }
-  latestMt5Candles = latestMt5Candles.map((item) => {
+    latestMt5Candles = latestMt5Candles.map((item) => {
     const latestClosed = item.latest_closed_candle_time || null;
     const latestStored = item.latest_candle_time || null;
-    const freshness = classifyCandleFreshness({
-      timeframe: item.timeframe,
-      latestClosedCandleTime: latestClosed,
-      candleCount: item.mt5_candle_count,
-    });
+      const freshness = classifyCandleFreshness({
+        timeframe: item.timeframe,
+        latestClosedCandleTime: latestClosed,
+        latestStoredCandleTime: latestStored,
+        candleCount: item.mt5_candle_count,
+        liveTicksAvailable: tickStatus !== "unavailable",
+      });
     return {
       ...item,
       latest_stored_candle_time: latestStored,

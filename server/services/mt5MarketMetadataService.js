@@ -59,7 +59,9 @@ const getClosedCandleCutoff = (timeframe, now = new Date()) => {
 const classifyCandleFreshness = ({
   timeframe,
   latestClosedCandleTime,
+  latestStoredCandleTime = null,
   candleCount,
+  liveTicksAvailable = false,
   now = new Date(),
 }) => {
   if (!candleCount) {
@@ -83,10 +85,25 @@ const classifyCandleFreshness = ({
 
   const threshold = TIMEFRAME_SECONDS[timeframe] + FRESHNESS_DELAY_SECONDS[timeframe];
   const ageSeconds = Math.max(0, Math.floor((now.getTime() - latestTime) / 1000));
+  const storedTime = latestStoredCandleTime ? new Date(latestStoredCandleTime).getTime() : NaN;
+  const formingCandlePresent = Number.isFinite(storedTime) && storedTime > latestTime;
+
+  if (timeframe === "D1" && liveTicksAvailable && (formingCandlePresent || ageSeconds <= threshold + TIMEFRAME_SECONDS.D1)) {
+    return {
+      freshness: formingCandlePresent ? "forming" : "current",
+      market_session_status: "open",
+      stale_threshold_seconds: threshold,
+      candle_age_seconds: ageSeconds,
+      reason: formingCandlePresent
+        ? "Current D1 candle is forming while MT5 live ticks are arriving."
+        : "Latest completed D1 candle remains current while MT5 live ticks confirm the market is open.",
+    };
+  }
 
   if (ageSeconds <= threshold) {
     return {
       freshness: "current",
+      market_session_status: liveTicksAvailable ? "open" : "unknown",
       stale_threshold_seconds: threshold,
       candle_age_seconds: ageSeconds,
       reason: "Latest closed MT5 candle is within the timeframe-aware freshness window.",
@@ -96,6 +113,7 @@ const classifyCandleFreshness = ({
   if (timeframe === "D1" && ageSeconds <= threshold + 3 * TIMEFRAME_SECONDS.D1) {
     return {
       freshness: "market_closed",
+      market_session_status: "closed",
       stale_threshold_seconds: threshold,
       candle_age_seconds: ageSeconds,
       reason: "Daily candles can remain unchanged during broker market closures.",
@@ -104,6 +122,7 @@ const classifyCandleFreshness = ({
 
   return {
     freshness: ageSeconds <= threshold * 2 ? "delayed" : "stale",
+    market_session_status: liveTicksAvailable ? "open" : "unknown",
     stale_threshold_seconds: threshold,
     candle_age_seconds: ageSeconds,
     reason: "Latest closed MT5 candle is older than the timeframe-aware freshness window.",

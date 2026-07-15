@@ -132,6 +132,8 @@ def collect_tick(platform_symbol: str, broker_symbol: str) -> dict:
         "ask": ask,
         "last": last,
         "tick_time": iso_time(tick.time),
+        "time": int(tick.time),
+        "time_msc": int(tick.time_msc) if getattr(tick, "time_msc", None) else int(tick.time) * 1000,
         "source": "mt5_broker",
     }
 

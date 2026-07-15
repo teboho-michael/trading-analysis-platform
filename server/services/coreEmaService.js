@@ -20,7 +20,7 @@ const trendState = (price, ema) => {
 
 const fetchClosedCandles = async (symbol, timeframe, limit = 260) => {
   const result = await pool.query(
-    `SELECT c.close, c.candle_time
+    `SELECT c.open, c.high, c.low, c.close, c.candle_time
      FROM candles c
      JOIN assets a ON a.id = c.asset_id
      WHERE a.symbol = $1

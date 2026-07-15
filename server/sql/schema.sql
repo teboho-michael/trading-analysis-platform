@@ -1368,6 +1368,14 @@ ALTER TABLE public.zones
 
 CREATE INDEX IF NOT EXISTS idx_zones_core_active ON public.zones USING btree (asset_id, timeframe, status, updated_at DESC);
 
+ALTER TABLE public.zones
+  ADD COLUMN IF NOT EXISTS proximal_price numeric(24,10),
+  ADD COLUMN IF NOT EXISTS distal_price numeric(24,10);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_zones_h4_origin_mt5_unique
+  ON public.zones USING btree (asset_id, timeframe, zone_type, origin_time, source)
+  WHERE ((origin_time IS NOT NULL) AND ((source)::text = 'mt5_broker'::text));
+
 ALTER TABLE public.alert_events
   ADD COLUMN IF NOT EXISTS dedupe_key character varying(255),
   ADD COLUMN IF NOT EXISTS resolved_at timestamp without time zone;

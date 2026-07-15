@@ -99,7 +99,7 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
     emaSeries.setData(calculateEmaSeries(emaCandles).slice(-180));
 
     const validActiveZone =
-      ["active", "approaching", "inside", "tested"].includes(activeZone?.status) &&
+      ["active", "tested"].includes(activeZone?.status) &&
       !activeZone.broken_at &&
       !activeZone.mitigated_at
         ? activeZone

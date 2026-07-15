@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Chart from "./Chart";
 import ChartToolbar from "./ChartToolbar";
 import { collectMarketData } from "../../services/marketService";
@@ -24,11 +24,16 @@ export default function TradingChartPanel({
   const latestPrice = liveQuote?.price ?? candles.at(-1)?.close;
   const isForming = candles.at(-1)?.isForming === true;
   const activeZone =
-    ["active", "approaching", "inside", "tested"].includes(selectedAssetData?.activeZone?.status) &&
+    ["active", "tested"].includes(selectedAssetData?.activeZone?.status) &&
     !selectedAssetData.activeZone.broken_at &&
     !selectedAssetData.activeZone.mitigated_at
       ? selectedAssetData.activeZone
       : null;
+
+  useEffect(() => {
+    setMessage("");
+    setMessageType("success");
+  }, [selectedAsset, selectedTimeframe]);
 
   const handleCollectData = async () => {
     try {
@@ -37,8 +42,9 @@ export default function TradingChartPanel({
 
       const result = await collectMarketData(selectedAsset, selectedTimeframe);
 
-      setMessage(result.message || "Market data collected successfully.");
-      setMessageType("success");
+      const hasFailures = Array.isArray(result.failures) && result.failures.length > 0;
+      setMessage(result.message || `${selectedAsset} ${selectedTimeframe} analysis refresh completed.`);
+      setMessageType(hasFailures || result.success === false ? "error" : result.refresh_status === "partial" ? "warning" : "success");
 
       onDataCollected();
     } catch (error) {
@@ -71,7 +77,7 @@ export default function TradingChartPanel({
           />
 
           <button onClick={handleCollectData} disabled={collecting}>
-            {collecting ? "Collecting..." : "Collect Latest Data"}
+            {collecting ? "Refreshing..." : "Refresh Core Analysis"}
           </button>
         </div>
       </div>

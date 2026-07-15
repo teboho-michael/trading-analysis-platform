@@ -1,12 +1,16 @@
 const pool = require("../db/connection");
 
+const buildAlertDedupeKey = ({ symbol, alertType, relatedZoneId = null, metadata = {} }) => (
+  `${symbol}:${alertType}:${relatedZoneId || "none"}:${JSON.stringify(metadata).slice(0, 80)}`
+);
+
 const createAlertEvent = async ({ assetId, symbol, alertType, severity = "info", message, relatedSignalId = null, relatedZoneId = null, metadata = {}, dedupeKey = null }) => {
   const result = await pool.query(
     `INSERT INTO alert_events (asset_id, symbol, alert_type, severity, message, related_signal_id, related_zone_id, metadata, dedupe_key)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND resolved_at IS NULL DO NOTHING
      RETURNING *`,
-    [assetId, symbol, alertType, severity, message, relatedSignalId, relatedZoneId, JSON.stringify(metadata), dedupeKey],
+    [assetId, symbol, alertType, severity, message, relatedSignalId, relatedZoneId, JSON.stringify(metadata), dedupeKey || buildAlertDedupeKey({ symbol, alertType, relatedZoneId, metadata })],
   );
   return result.rows[0] || null;
 };
@@ -34,4 +38,4 @@ const recordMarketState = async ({ assetId, symbol, h1Trend, isNearZone, zoneId 
   return createAlertEvent({ assetId, symbol, alertType: "market_state_snapshot", severity: "state", message: `${symbol} analysis state recorded`, relatedZoneId: zoneId, metadata: { h1Trend, isNearZone } });
 };
 
-module.exports = { createAlertEvent, recordSetupStage, recordMarketState };
+module.exports = { buildAlertDedupeKey, createAlertEvent, recordSetupStage, recordMarketState };
