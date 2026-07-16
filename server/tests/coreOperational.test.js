@@ -180,6 +180,15 @@ test("future tick timestamp is handled explicitly", () => {
   assert.equal(state.clock_skew_seconds, 300);
 });
 
+test("older broker event time can still be live when received recently", () => {
+  const state = classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:03:00.000Z", new Date("2026-01-01T00:03:10.000Z"));
+  assert.equal(state.status, "live");
+  assert.equal(state.freshness, "live");
+  assert.equal(state.is_fresh, true);
+  assert.equal(state.received_age_seconds, 10);
+  assert.equal(state.clock_skew_seconds, -180);
+});
+
 test("broker-local formatted tick time parses without duplicate timezone conversion", () => {
   const normalized = normalizeTickTime({ tick_time: "2026-01-01 12:30:15" }, new Date("2026-01-01T12:30:20.000Z"));
   assert.equal(normalized.tickTime.toISOString(), "2026-01-01T12:30:15.000Z");

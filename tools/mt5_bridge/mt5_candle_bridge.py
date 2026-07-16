@@ -61,6 +61,7 @@ MT5_BRIDGE_SECRET = config_value("MT5_BRIDGE_SECRET")
 MAX_RETRIES = int(config_value("MT5_BRIDGE_RETRIES", 3))
 RETRY_BASE_SECONDS = float(config_value("MT5_BRIDGE_RETRY_BASE_SECONDS", 2))
 CANDLE_LIMIT = int(config_value("MT5_BRIDGE_CANDLE_LIMIT", DEFAULT_CANDLE_LIMIT))
+MAX_TICK_FUTURE_SKEW_SECONDS = float(config_value("MT5_TICK_FUTURE_TOLERANCE_SECONDS", 60))
 
 
 def utc_now() -> str:
@@ -69,6 +70,33 @@ def utc_now() -> str:
 
 def iso_time(timestamp) -> str:
     return datetime.fromtimestamp(float(timestamp), timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def normalize_tick_timestamp(raw_time, raw_time_msc) -> tuple[datetime, float]:
+    epoch_seconds = None
+    try:
+        numeric_time_msc = int(raw_time_msc)
+        if numeric_time_msc > 0:
+            epoch_seconds = numeric_time_msc / 1000.0
+    except (TypeError, ValueError, OverflowError):
+        epoch_seconds = None
+
+    if epoch_seconds is None:
+        try:
+            numeric_time = float(raw_time)
+            if numeric_time > 0:
+                epoch_seconds = numeric_time
+        except (TypeError, ValueError, OverflowError):
+            epoch_seconds = None
+
+    if epoch_seconds is None:
+        raise RuntimeError("MT5 tick has no valid Unix epoch timestamp")
+
+    tick_time = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
+    round_trip_seconds = tick_time.timestamp()
+    if abs(round_trip_seconds - epoch_seconds) > 0.001:
+        raise RuntimeError("MT5 tick timestamp normalization changed the source epoch instant")
+    return tick_time, epoch_seconds
 
 
 def load_state() -> dict:
@@ -125,15 +153,33 @@ def collect_tick(platform_symbol: str, broker_symbol: str) -> dict:
     bid = float(tick.bid) if tick.bid else None
     ask = float(tick.ask) if tick.ask else None
     last = float(tick.last) if tick.last else None
+    raw_time = int(tick.time)
+    raw_time_msc = int(tick.time_msc) if getattr(tick, "time_msc", None) else raw_time * 1000
+    tick_time, _epoch_seconds = normalize_tick_timestamp(raw_time, raw_time_msc)
+    tick_time_iso = tick_time.isoformat().replace("+00:00", "Z")
+    current_utc = datetime.now(timezone.utc)
+    current_utc_iso = current_utc.isoformat().replace("+00:00", "Z")
+    skew_seconds = (tick_time - current_utc).total_seconds()
+    print(
+        f"{platform_symbol}/{broker_symbol} tick diagnostic: "
+        f"raw_time={raw_time} raw_time_msc={raw_time_msc} "
+        f"emitted_tick_time_utc={tick_time_iso} current_utc={current_utc_iso} "
+        f"skew_seconds={skew_seconds:.3f}",
+        flush=True,
+    )
+    if skew_seconds > MAX_TICK_FUTURE_SKEW_SECONDS:
+        raise RuntimeError(
+            f"timestamp-normalization error: emitted tick timestamp is {skew_seconds:.1f}s ahead of current UTC"
+        )
     return {
         "platform_symbol": platform_symbol,
         "broker_symbol": broker_symbol,
         "bid": bid,
         "ask": ask,
         "last": last,
-        "tick_time": iso_time((int(tick.time_msc) / 1000) if getattr(tick, "time_msc", None) else tick.time),
-        "time": int(tick.time),
-        "time_msc": int(tick.time_msc) if getattr(tick, "time_msc", None) else int(tick.time) * 1000,
+        "tick_time": tick_time_iso,
+        "time": raw_time,
+        "time_msc": raw_time_msc,
         "source": "mt5_broker",
     }
 

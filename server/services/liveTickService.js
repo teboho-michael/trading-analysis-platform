@@ -1,5 +1,6 @@
 const pool = require("../db/connection");
 const { getInstrument, instrumentRegistry } = require("../market/instrumentRegistry");
+const { resolveOpenAlerts } = require("./alertService");
 
 const SOURCE = "mt5_broker";
 const STATUS = {
@@ -46,9 +47,6 @@ const classifyTick = (tickTime, receivedAt = new Date(), now = new Date()) => {
       clock_skew_seconds: clockSkewSeconds,
       warning: "MT5 tick timestamp is ahead of receipt time beyond tolerance.",
     };
-  }
-  if (Math.abs(clockSkewSeconds) > skewToleranceSeconds()) {
-    return { freshness: "stale", status: STATUS.STALE, is_fresh: false, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
   }
   if (safeReceivedAge > staleAfterSeconds()) {
     return { freshness: "stale", status: STATUS.STALE, is_fresh: false, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
@@ -136,7 +134,11 @@ const importTicks = async (payload) => {
          RETURNING *`,
         [tick.platform_symbol, tick.broker_symbol, tick.bid, tick.ask, tick.last, tick.display_price, tick.spread, tick.tick_time, state.freshness, state.status, SOURCE, JSON.stringify(tick.raw_payload)],
       );
-      saved.push(result.rows[0]);
+      const savedTick = result.rows[0];
+      saved.push(savedTick);
+      if (state.status === STATUS.LIVE && state.is_fresh === true) {
+        await resolveOpenAlerts({ symbol: tick.platform_symbol, alertType: "data_stale", reason: "Fresh MT5 tick imported" });
+      }
     } catch (error) {
       rejected.push({ index, reason: error.message });
     }
@@ -207,14 +209,32 @@ const getLatestTicks = async (requestedSymbols) => {
     throw error;
   }
   const result = await pool.query(
-    `SELECT *
-     FROM live_ticks
-     WHERE platform_symbol = ANY($1)
-       AND source = $2
-       AND received_at >= CURRENT_TIMESTAMP - INTERVAL '1 day'
-     ORDER BY platform_symbol, received_at DESC, tick_time DESC
-     LIMIT 500`,
-    [symbols, SOURCE],
+    `WITH requested AS (
+       SELECT *
+       FROM unnest($1::text[], $2::text[]) AS item(platform_symbol, broker_symbol)
+     )
+     SELECT lt.*
+     FROM requested r
+     JOIN LATERAL (
+       SELECT *
+       FROM live_ticks
+       WHERE platform_symbol = r.platform_symbol
+         AND broker_symbol = r.broker_symbol
+         AND source = $3
+         AND received_at >= CURRENT_TIMESTAMP - INTERVAL '1 day'
+       ORDER BY
+         CASE
+           WHEN received_at >= CURRENT_TIMESTAMP - ($4::int * INTERVAL '1 second')
+            AND tick_time <= received_at + ($5::int * INTERVAL '1 second')
+           THEN 0
+           ELSE 1
+         END,
+         received_at DESC,
+         tick_time DESC
+       LIMIT 25
+     ) lt ON TRUE
+     ORDER BY r.platform_symbol, lt.received_at DESC, lt.tick_time DESC`,
+    [symbols, symbols.map((symbol) => getInstrument(symbol).brokerSymbol), SOURCE, staleAfterSeconds(), skewToleranceSeconds()],
   );
   const rowsBySymbol = new Map();
   for (const row of result.rows) {
