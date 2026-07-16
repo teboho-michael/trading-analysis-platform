@@ -3,6 +3,16 @@ const pool = require("../db/connection");
 const BRIDGE_NAME = "mt5-continuous-bridge";
 const HEARTBEAT_MAX_AGE_SECONDS = 20;
 
+const utcTimestamp = (value, field, fallback = null) => {
+  const timestamp = value == null ? fallback : new Date(value);
+  if (!(timestamp instanceof Date) || Number.isNaN(timestamp.getTime())) {
+    const error = new Error(`Invalid ${field} UTC timestamp`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return timestamp;
+};
+
 const classifyBridgeRuntime = (row, now = new Date()) => {
   if (!row) return { status: "unavailable", process_count: 0, heartbeat_age_seconds: null };
   const age = Math.max(0, Math.floor((now - new Date(row.heartbeat_at)) / 1000));
@@ -11,10 +21,14 @@ const classifyBridgeRuntime = (row, now = new Date()) => {
 };
 
 const recordHeartbeat = async (payload = {}) => {
-  const heartbeat = payload.heartbeat_at ? new Date(payload.heartbeat_at) : new Date();
-  if (Number.isNaN(heartbeat.getTime()) || Math.abs(Date.now() - heartbeat.getTime()) > 120000) {
+  const now = new Date();
+  const heartbeat = utcTimestamp(payload.heartbeat_at, "heartbeat_at", now);
+  if (Math.abs(now.getTime() - heartbeat.getTime()) > 120000) {
     const error = new Error("Invalid continuous bridge heartbeat time"); error.statusCode = 400; throw error;
   }
+  const startedAt = utcTimestamp(payload.started_at, "started_at", heartbeat);
+  const lastTickImportAt = payload.last_tick_import_at ? utcTimestamp(payload.last_tick_import_at, "last_tick_import_at") : null;
+  const lastCandleSyncAt = payload.last_candle_sync_at ? utcTimestamp(payload.last_candle_sync_at, "last_candle_sync_at") : null;
   const result = await pool.query(
     `INSERT INTO bridge_runtime_state
       (bridge_name,process_id,host_name,started_at,heartbeat_at,broker_offset_seconds,terminal_connected,last_tick_import_at,last_candle_sync_at,status,details,updated_at)
@@ -24,9 +38,9 @@ const recordHeartbeat = async (payload = {}) => {
        terminal_connected=EXCLUDED.terminal_connected,last_tick_import_at=COALESCE(EXCLUDED.last_tick_import_at,bridge_runtime_state.last_tick_import_at),
        last_candle_sync_at=COALESCE(EXCLUDED.last_candle_sync_at,bridge_runtime_state.last_candle_sync_at),status=EXCLUDED.status,
        details=EXCLUDED.details,updated_at=CURRENT_TIMESTAMP RETURNING *`,
-    [BRIDGE_NAME, payload.process_id || null, payload.host_name || null, payload.started_at || null, heartbeat,
-      Number(payload.broker_offset_seconds || 0), payload.terminal_connected === true, payload.last_tick_import_at || null,
-      payload.last_candle_sync_at || null, payload.status || "running", JSON.stringify(payload.details || {})],
+    [BRIDGE_NAME, payload.process_id || null, payload.host_name || null, startedAt, heartbeat,
+      Number(payload.broker_offset_seconds || 0), payload.terminal_connected === true, lastTickImportAt,
+      lastCandleSyncAt, payload.status || "running", JSON.stringify(payload.details || {})],
   );
   return result.rows[0];
 };
@@ -37,4 +51,4 @@ const getBridgeRuntime = async (now = new Date()) => {
   return classifyBridgeRuntime(row, now);
 };
 
-module.exports = { BRIDGE_NAME, HEARTBEAT_MAX_AGE_SECONDS, classifyBridgeRuntime, recordHeartbeat, getBridgeRuntime };
+module.exports = { BRIDGE_NAME, HEARTBEAT_MAX_AGE_SECONDS, classifyBridgeRuntime, recordHeartbeat, getBridgeRuntime, utcTimestamp };

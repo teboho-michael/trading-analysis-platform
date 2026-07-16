@@ -1,5 +1,6 @@
 import api from "./api";
 import { isStrategyTimeframe } from "../config/timeframes";
+export { backendCollectionError } from "./marketError";
 
 export const collectMarketData = async (symbol, timeframe) => {
   if (!isStrategyTimeframe(timeframe)) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Chart from "./Chart";
 import ChartToolbar from "./ChartToolbar";
-import { collectMarketData } from "../../services/marketService";
+import { backendCollectionError, collectMarketData } from "../../services/marketService";
 import { formatSastTime } from "../../utils/time";
 
 const formatDateTime = formatSastTime;
@@ -49,14 +49,7 @@ export default function TradingChartPanel({
 
       onDataCollected();
     } catch (error) {
-      const mt5Unavailable = ["awaiting_mt5_candles", "stale_mt5_candles", "unavailable"].includes(error.response?.data?.status);
-      setMessage(
-        mt5Unavailable
-          ? "MT5 broker data is unavailable or stale. Check the VPS bridge sync."
-          : error.response?.data?.error ||
-          error.response?.data?.message ||
-          "Failed to collect market data.",
-      );
+      setMessage(backendCollectionError(error));
       setMessageType("error");
     } finally {
       setCollecting(false);

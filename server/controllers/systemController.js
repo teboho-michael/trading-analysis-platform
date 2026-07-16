@@ -9,6 +9,7 @@ const {
 } = require("../services/mt5MarketMetadataService");
 const { getBridgeRuntime } = require("../services/bridgeRuntimeService");
 const { getFormingCandle } = require("../services/formingCandleService");
+const { classifyRuntimeHealth } = require("../services/runtimeHealthService");
 
 const getInstruments = (req, res) => res.json({ success: true, instruments: getSafeInstruments() });
 
@@ -39,7 +40,7 @@ const health = async (req, res) => {
   let latestBridgeRuns = [];
   if (database === "available") {
     latestTicks = (await getLatestTicks()).prices;
-    const operationalTickCount = latestTicks.filter((tick) => (tick.status === "live" && tick.is_fresh === true) || tick.status === "market_closed").length;
+    const operationalTickCount = latestTicks.filter((tick) => tick.status === "live" && tick.is_fresh === true).length;
     tickStatus = operationalTickCount === getSafeInstruments().length ? "available" : operationalTickCount > 0 ? "degraded" : "unavailable";
     latestZoneUpdate = (await pool.query("SELECT MAX(updated_at) AS latest_zone_update FROM zones WHERE source=$1", [MT5_SOURCE])).rows[0]?.latest_zone_update || null;
     latestSetupUpdate = (await pool.query("SELECT MAX(calculated_at) AS latest_setup_update FROM core_ema_states WHERE source=$1", [MT5_SOURCE])).rows[0]?.latest_setup_update || null;
@@ -123,15 +124,11 @@ const health = async (req, res) => {
     .filter((item) => ["delayed", "stale", "missing", "awaiting_first_sync"].includes(item.freshness))
     .map((item) => ({ symbol: item.symbol, timeframe: item.timeframe, status: item.freshness, latest_candle_time: item.latest_candle_time, latest_closed_candle_time: item.latest_closed_candle_time, reason: item.reason }));
   staleWarnings.push(...latestTicks.filter((tick) => !((tick.status === "live" && tick.is_fresh === true) || tick.status === "market_closed")).map((tick) => ({ symbol: tick.platform_symbol, status: tick.status, latest_tick_time: tick.tick_time, received_at: tick.received_at, clock_skew_seconds: tick.clock_skew_seconds, reason: "MT5 live tick delayed, stale, missing, or timestamp skewed" })));
-  const candleStatus = latestMt5Candles.length >= getSafeInstruments().length * 3 && staleWarnings.every((warning) => !warning.timeframe) ? "available" : latestMt5Candles.length ? "degraded" : "unavailable";
+  const requiredCandleKeys = new Set(getSafeInstruments().flatMap((instrument) => ["D1", "H4", "H1"].map((timeframe) => `${instrument.symbol}:${timeframe}`)));
+  const availableCandleKeys = new Set(latestMt5Candles.filter((item) => item.mt5_candle_count > 0).map((item) => `${item.symbol}:${item.timeframe}`));
+  const candleStatus = [...requiredCandleKeys].every((key) => availableCandleKeys.has(key)) ? "available" : latestMt5Candles.length ? "degraded" : "unavailable";
   const coreAnalysisStatus = latestZoneUpdate || latestSetupUpdate ? "available" : "pending";
   const mt5TerminalStatus = bridge.status === "available" && bridge.terminal_connected ? "available" : "unavailable";
-  const degradationReasons = [];
-  if (database !== "available") degradationReasons.push("database unavailable");
-  if (tickStatus !== "available") degradationReasons.push("not all MT5 live ticks are fresh");
-  if (candleStatus !== "available") degradationReasons.push("required MT5 candles are missing or stale");
-  if (coreAnalysisStatus !== "available") degradationReasons.push("core analysis has not refreshed yet");
-  if (bridge.status !== "available") degradationReasons.push("continuous MT5 bridge heartbeat is missing or stale");
   const formingBuckets = database === "available" ? (await Promise.all(latestMt5Candles.map(async (item) => ({
     symbol: item.symbol, timeframe: item.timeframe, forming_candle: await getFormingCandle(item.symbol, item.timeframe),
   })))).map((item) => ({ ...item, bucket: item.forming_candle?.bucket_start || null, status: item.forming_candle?.status || "unavailable" })) : [];
@@ -139,12 +136,9 @@ const health = async (req, res) => {
     `SELECT 'tick' AS type,platform_symbol AS symbol,tick_time AS timestamp FROM live_ticks WHERE tick_time > CURRENT_TIMESTAMP + INTERVAL '60 seconds'
      UNION ALL SELECT 'candle',a.symbol,c.candle_time FROM candles c JOIN assets a ON a.id=c.asset_id WHERE c.candle_time > CURRENT_TIMESTAMP + INTERVAL '60 seconds'`,
   )).rows : [];
-  if (futureViolations.length) degradationReasons.push("future-normalized tick or candle timestamps detected");
-  const applicationStatus = database === "unavailable"
-    ? "unavailable"
-    : bridge.status === "available" && tickStatus === "available" && candleStatus === "available" && coreAnalysisStatus === "available" && staleWarnings.length === 0 && futureViolations.length === 0
-      ? "available"
-      : "degraded";
+  const runtimeHealth = classifyRuntimeHealth({ database, bridge, tickStatus, candleStatus, futureViolationCount: futureViolations.length });
+  const degradationReasons = runtimeHealth.reasons.map((reason) => reason.message);
+  const applicationStatus = runtimeHealth.applicationStatus;
   res.status(database === "unavailable" ? 503 : 200).json({
     success: database === "available",
     application_status: applicationStatus,
@@ -164,6 +158,7 @@ const health = async (req, res) => {
     mt5_bridge_status: bridge.status,
     mt5_bridge: bridge.status,
     degradation_reasons: degradationReasons,
+    degradation_reason_codes: runtimeHealth.reasons.map((reason) => reason.code),
     mt5_only_mode: true,
     mt5_only_mode_enabled: true,
     providerMode: mode,

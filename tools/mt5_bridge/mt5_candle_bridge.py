@@ -288,8 +288,12 @@ def post_heartbeat(payload: dict) -> dict:
         raise RuntimeError("Set MT5_BRIDGE_SECRET in the environment or mt5_bridge.local.json")
     req = request.Request(f"{PLATFORM_API_BASE_URL.rstrip('/')}/api/broker/mt5/heartbeat",
         data=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json", "x-mt5-bridge-secret": MT5_BRIDGE_SECRET}, method="POST")
-    with request.urlopen(req, timeout=15) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with request.urlopen(req, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"heartbeat: HTTP {exc.code} {detail}") from exc
 
 
 def incremental_limit(platform_symbol: str, timeframe: str, repair: bool = False) -> int:

@@ -54,7 +54,26 @@ const getStoredCandleStatus = async (symbol, timeframe) => {
   };
 };
 
-const runCoreRefresh = async (symbol, requestedTimeframe) => {
+const errorCode = (error) => ({
+  "42703": "DATABASE_COLUMN_MISSING",
+  "42P01": "DATABASE_TABLE_MISSING",
+  "23505": "DATABASE_CONFLICT",
+}[error?.code] || error?.error_code || "CORE_ANALYSIS_ERROR");
+
+const logStageFailure = (symbol, timeframe, stage, error) => {
+  console.error(`[core-refresh] ${symbol} ${timeframe || "D1/H4/H1"} failed at ${stage}`, error?.stack || error);
+};
+
+const runCoreRefresh = async (symbol, requestedTimeframe, overrides = {}) => {
+  const dependencies = {
+    getLivePrices,
+    getStoredCandleStatus,
+    recalculateEmaStates,
+    saveZonesForSymbol,
+    buildSetup,
+    recordCoreAlerts,
+    ...overrides,
+  };
   const startedAt = new Date().toISOString();
   const symbols = symbol ? [String(symbol).toUpperCase()] : Object.keys(instrumentRegistry);
   const timeframes = requestedTimeframe ? [String(requestedTimeframe).toUpperCase()] : TIMEFRAMES;
@@ -79,7 +98,7 @@ const runCoreRefresh = async (symbol, requestedTimeframe) => {
     failures: [],
   };
 
-  const liveResult = await getLivePrices(symbols);
+  const liveResult = await dependencies.getLivePrices(symbols);
   summary.ticks_available = liveResult.prices.filter((quote) => quote.status === "live").length;
   summary.ticks_updated = 0;
 
@@ -88,44 +107,55 @@ const runCoreRefresh = async (symbol, requestedTimeframe) => {
     const symbolResult = { symbol: currentSymbol, timeframes: [], tick_status: liveQuote?.status || "unavailable" };
     for (const timeframe of timeframes) {
       try {
-        const candleStatus = await getStoredCandleStatus(currentSymbol, timeframe);
+        const candleStatus = await dependencies.getStoredCandleStatus(currentSymbol, timeframe);
         symbolResult.timeframes.push(candleStatus);
         if (!candleStatus.candle_count) {
-          summary.failures.push({ symbol: currentSymbol, timeframe, step: "stored_mt5_candles", error: "No stored MT5 broker candles are available. Run the MT5 Python bridge sync." });
+          summary.failures.push({ symbol: currentSymbol, timeframe, stage: "stored_mt5_candles", error_code: "MT5_CANDLES_MISSING", error_message: "No stored MT5 broker candles are available. Run the MT5 Python bridge sync." });
         }
       } catch (error) {
         symbolResult.timeframes.push({ timeframe, status: "failed", error: error.message });
-        summary.failures.push({ symbol: currentSymbol, timeframe, step: "stored_mt5_candles", error: error.message });
+        logStageFailure(currentSymbol, timeframe, "stored_mt5_candles", error);
+        summary.failures.push({ symbol: currentSymbol, timeframe, stage: "stored_mt5_candles", error_code: errorCode(error), error_message: error.message });
       }
     }
+    let activeStage = "stored_mt5_candles";
     try {
       if (symbolResult.timeframes.some((item) => !item.candle_count)) {
-        throw new Error("Required stored MT5 candles are unavailable for analysis refresh");
+        const error = new Error("Required stored MT5 candles are unavailable for analysis refresh");
+        error.error_code = "MT5_CANDLES_MISSING";
+        throw error;
       }
-      const emaStates = await recalculateEmaStates(currentSymbol);
+      activeStage = "ema_write";
+      const emaStates = await dependencies.recalculateEmaStates(currentSymbol);
       summary.ema_updated += emaStates.length;
-      const zones = await saveZonesForSymbol(currentSymbol, liveQuote?.price);
+      activeStage = "zone_write";
+      const zones = await dependencies.saveZonesForSymbol(currentSymbol, liveQuote?.price);
       summary.zones_created += zones.zones_created;
       summary.zones_updated += zones.zones_updated;
-      const setup = await buildSetup(currentSymbol);
-      const alerts = await recordCoreAlerts(currentSymbol, setup);
+      activeStage = "setup_calculation";
+      const setup = await dependencies.buildSetup(currentSymbol);
+      activeStage = "alert_write";
+      const alerts = await dependencies.recordCoreAlerts(currentSymbol, setup);
       summary.setups_updated += 1;
       summary.alerts_created += alerts.length;
       symbolResult.zone_reason = zones.reason;
       symbolResult.setup = { signal: setup.signal, stage: setup.stage, quality_score: setup.quality_score, status: setup.status };
     } catch (error) {
-      summary.failures.push({ symbol: currentSymbol, step: "core_recalculation", error: error.message });
+      const stage = error.stage || activeStage;
+      logStageFailure(currentSymbol, requestedTimeframe, stage, error);
+      summary.failures.push({ symbol: currentSymbol, timeframe: requestedTimeframe || null, stage, error_code: errorCode(error), error_message: error.message });
       symbolResult.analysis_status = "failed";
     }
     summary.symbols_processed += 1;
     summary.results.push(symbolResult);
   }
-  const analysisFailures = summary.failures.filter((failure) => failure.step === "core_recalculation").length;
+  const failedSymbols = new Set(summary.failures.map((failure) => failure.symbol)).size;
   const totalSymbols = symbols.length;
   summary.candle_data_status = summary.results.every((item) => item.timeframes.every((tf) => tf.candle_count > 0)) ? "available" : "unavailable";
-  summary.refresh_status = summary.failures.length === 0 ? "completed" : analysisFailures >= totalSymbols ? "failed" : "partial";
+  summary.refresh_status = summary.failures.length === 0 ? "completed" : failedSymbols >= totalSymbols ? "failed" : "partial";
   summary.success = summary.refresh_status !== "failed";
   summary.completed_at = new Date().toISOString();
+  summary.scan_completed_at = summary.refresh_status === "completed" ? summary.completed_at : null;
   return summary;
 };
 
@@ -141,21 +171,32 @@ const collectMarketData = async (req, res) => {
     }
 
     const result = await runCoreRefresh(symbol, timeframe);
-    const status = result.refresh_status === "completed" ? 200 : result.candle_data_status === "unavailable" ? 503 : 207;
+    const failure = result.failures[0] || null;
+    const status = result.refresh_status === "completed" ? 200 : result.refresh_status === "partial" ? 207 : result.candle_data_status === "unavailable" ? 503 : 500;
     res.status(status).json({
       ...result,
+      symbol: symbol || null,
+      timeframe: timeframe || null,
+      stage: failure?.stage || "completed",
+      error_code: failure?.error_code || null,
+      error_message: failure?.error_message || null,
       message: result.refresh_status === "completed"
         ? `${symbol || "All symbols"} ${timeframe || "D1/H4/H1"} core analysis refresh completed`
         : `${symbol || "All symbols"} ${timeframe || "D1/H4/H1"} core analysis refresh ${result.refresh_status}`,
     });
   } catch (error) {
+    console.error("[core-refresh] unhandled collection failure", error?.stack || error);
     const status = error.message?.includes("DATA_VALIDATION_ERROR") ? 422 : error.message?.includes("MT5_BRIDGE_ERROR") ? 503 : 500;
 
     res.status(status).json({
       success: false,
       status: status === 503 ? "awaiting_mt5_candles" : "failed",
       data_source: "mt5_broker",
-      error: error.message,
+      symbol: req.body?.symbol || null,
+      timeframe: req.body?.timeframe || null,
+      stage: "request",
+      error_code: errorCode(error),
+      error_message: error.message,
     });
   }
 };

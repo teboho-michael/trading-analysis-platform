@@ -110,7 +110,7 @@ function App() {
           <span>Next {getAnalysisTimeframe(selectedTimeframe)} close: {formatTime(selectedFreshness?.next_expected_close_time)}</span>
           <span>Price updated: {formatTime(live.lastUpdated)}</span>
           <span>Bridge heartbeat: {formatTime(systemHealth?.continuous_bridge_heartbeat)}</span>
-          <span>Scan: {formatTime(live.lastScan?.lastSuccessfulScanAt)}</span>
+          <span>Scan: {systemHealth?.lastScan?.lastSuccessfulScanAt ? formatTime(systemHealth.lastScan.lastSuccessfulScanAt) : "Not run"}</span>
           <button type="button" className={liveMode ? "active" : ""} onClick={() => setLiveMode((value) => !value)}>Live mode: {liveMode ? "On" : "Off"}</button>
           <button type="button" onClick={() => setAnalysisVisible((value) => !value)}>{analysisVisible ? "Hide analysis" : "Show analysis"}</button>
           <button type="button" onClick={() => setHistoryVisible((value) => !value)}>{historyVisible ? "Hide history" : "Show history"}</button>
