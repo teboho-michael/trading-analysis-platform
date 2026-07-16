@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+from statistics import median
 import sys
 import time
 from urllib import error, request
@@ -62,6 +63,10 @@ MAX_RETRIES = int(config_value("MT5_BRIDGE_RETRIES", 3))
 RETRY_BASE_SECONDS = float(config_value("MT5_BRIDGE_RETRY_BASE_SECONDS", 2))
 CANDLE_LIMIT = int(config_value("MT5_BRIDGE_CANDLE_LIMIT", DEFAULT_CANDLE_LIMIT))
 MAX_TICK_FUTURE_SKEW_SECONDS = float(config_value("MT5_TICK_FUTURE_TOLERANCE_SECONDS", 60))
+BROKER_OFFSET_MIN_SYMBOLS = 3
+BROKER_OFFSET_AGREEMENT_SECONDS = 120
+BROKER_OFFSET_WHOLE_HOUR_TOLERANCE_SECONDS = 120
+BROKER_OFFSET_MAX_SECONDS = 14 * 60 * 60
 
 
 def utc_now() -> str:
@@ -97,6 +102,66 @@ def normalize_tick_timestamp(raw_time, raw_time_msc) -> tuple[datetime, float]:
     if abs(round_trip_seconds - epoch_seconds) > 0.001:
         raise RuntimeError("MT5 tick timestamp normalization changed the source epoch instant")
     return tick_time, epoch_seconds
+
+
+def detect_broker_clock_offset(raw_ticks: list[dict], current_utc: datetime) -> int:
+    """Detect one safe, whole-hour broker clock offset for a tick batch."""
+    skews = [tick["raw_epoch_seconds"] - current_utc.timestamp() for tick in raw_ticks]
+    future_skews = [skew for skew in skews if skew > MAX_TICK_FUTURE_SKEW_SECONDS]
+    if not future_skews:
+        return 0
+
+    median_skew = median(future_skews)
+    whole_hour_offset = round(median_skew / 3600) * 3600
+    if abs(whole_hour_offset) > BROKER_OFFSET_MAX_SECONDS:
+        raise RuntimeError(f"broker clock offset {whole_hour_offset}s lies outside the safe +/-14 hour range")
+    if whole_hour_offset == 0 or abs(median_skew - whole_hour_offset) > BROKER_OFFSET_WHOLE_HOUR_TOLERANCE_SECONDS:
+        raise RuntimeError(f"broker clock skew median {median_skew:.1f}s is not close to a non-zero whole-hour offset")
+
+    agreeing = [skew for skew in future_skews if abs(skew - whole_hour_offset) <= BROKER_OFFSET_AGREEMENT_SECONDS]
+    if len(agreeing) < BROKER_OFFSET_MIN_SYMBOLS:
+        raise RuntimeError(
+            f"broker clock offset consensus requires {BROKER_OFFSET_MIN_SYMBOLS} symbols; found {len(agreeing)}"
+        )
+    inconsistent = [skew for skew in future_skews if abs(skew - whole_hour_offset) > BROKER_OFFSET_AGREEMENT_SECONDS]
+    if inconsistent:
+        raise RuntimeError(f"future tick skews disagree with detected broker clock offset {whole_hour_offset}s")
+    return int(whole_hour_offset)
+
+
+def normalize_collected_ticks(raw_ticks: list[dict], current_utc: datetime) -> list[dict]:
+    broker_offset_seconds = detect_broker_clock_offset(raw_ticks, current_utc)
+    normalized_ticks = []
+    for raw_tick in raw_ticks:
+        normalized_epoch = raw_tick["raw_epoch_seconds"] - broker_offset_seconds
+        normalized_time = datetime.fromtimestamp(normalized_epoch, tz=timezone.utc)
+        normalized_skew = (normalized_time - current_utc).total_seconds()
+        raw_time_iso = datetime.fromtimestamp(raw_tick["raw_epoch_seconds"], tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        normalized_time_iso = normalized_time.isoformat().replace("+00:00", "Z")
+        print(
+            f"{raw_tick['platform_symbol']}/{raw_tick['broker_symbol']} tick diagnostic: "
+            f"raw_time={raw_tick['raw_time']} raw_time_msc={raw_tick['raw_time_msc']} "
+            f"raw_emitted_timestamp={raw_time_iso} detected_broker_offset_seconds={broker_offset_seconds} "
+            f"normalized_utc_timestamp={normalized_time_iso} normalized_skew_seconds={normalized_skew:.3f}",
+            flush=True,
+        )
+        if normalized_skew > MAX_TICK_FUTURE_SKEW_SECONDS:
+            raise RuntimeError(
+                f"{raw_tick['platform_symbol']} timestamp-normalization error: normalized tick timestamp "
+                f"is {normalized_skew:.1f}s ahead of current UTC"
+            )
+        normalized_ticks.append({
+            "platform_symbol": raw_tick["platform_symbol"],
+            "broker_symbol": raw_tick["broker_symbol"],
+            "bid": raw_tick["bid"],
+            "ask": raw_tick["ask"],
+            "last": raw_tick["last"],
+            "tick_time": normalized_time_iso,
+            "raw_tick_time": raw_time_iso,
+            "clock_offset_seconds": broker_offset_seconds,
+            "source": "mt5_broker",
+        })
+    return normalized_ticks
 
 
 def load_state() -> dict:
@@ -155,32 +220,16 @@ def collect_tick(platform_symbol: str, broker_symbol: str) -> dict:
     last = float(tick.last) if tick.last else None
     raw_time = int(tick.time)
     raw_time_msc = int(tick.time_msc) if getattr(tick, "time_msc", None) else raw_time * 1000
-    tick_time, _epoch_seconds = normalize_tick_timestamp(raw_time, raw_time_msc)
-    tick_time_iso = tick_time.isoformat().replace("+00:00", "Z")
-    current_utc = datetime.now(timezone.utc)
-    current_utc_iso = current_utc.isoformat().replace("+00:00", "Z")
-    skew_seconds = (tick_time - current_utc).total_seconds()
-    print(
-        f"{platform_symbol}/{broker_symbol} tick diagnostic: "
-        f"raw_time={raw_time} raw_time_msc={raw_time_msc} "
-        f"emitted_tick_time_utc={tick_time_iso} current_utc={current_utc_iso} "
-        f"skew_seconds={skew_seconds:.3f}",
-        flush=True,
-    )
-    if skew_seconds > MAX_TICK_FUTURE_SKEW_SECONDS:
-        raise RuntimeError(
-            f"timestamp-normalization error: emitted tick timestamp is {skew_seconds:.1f}s ahead of current UTC"
-        )
+    _tick_time, epoch_seconds = normalize_tick_timestamp(raw_time, raw_time_msc)
     return {
         "platform_symbol": platform_symbol,
         "broker_symbol": broker_symbol,
         "bid": bid,
         "ask": ask,
         "last": last,
-        "tick_time": tick_time_iso,
-        "time": raw_time,
-        "time_msc": raw_time_msc,
-        "source": "mt5_broker",
+        "raw_time": raw_time,
+        "raw_time_msc": raw_time_msc,
+        "raw_epoch_seconds": epoch_seconds,
     }
 
 
@@ -266,7 +315,7 @@ def sync_symbol_timeframe(platform_symbol: str, timeframe: str, state: dict) -> 
 
 
 def sync_ticks(symbols: list[str], state: dict) -> bool:
-    ticks = []
+    raw_ticks = []
     failed = []
     for platform_symbol in symbols:
         broker_symbol = select_broker_symbol(platform_symbol)
@@ -274,10 +323,11 @@ def sync_ticks(symbols: list[str], state: dict) -> bool:
             failed.append(platform_symbol)
             continue
         try:
-            ticks.append(with_retries(f"{platform_symbol}/{broker_symbol} tick", lambda: collect_tick(platform_symbol, broker_symbol)))
+            raw_ticks.append(with_retries(f"{platform_symbol}/{broker_symbol} tick", lambda: collect_tick(platform_symbol, broker_symbol)))
         except Exception as exc:
             print(f"{platform_symbol} tick: {exc}", flush=True)
             failed.append(platform_symbol)
+    ticks = normalize_collected_ticks(raw_ticks, datetime.now(timezone.utc)) if raw_ticks else []
     if ticks:
         result = with_retries("live ticks import", lambda: post_ticks({"ticks": ticks, "started_at": utc_now()}))
         summary = result.get("import", result)

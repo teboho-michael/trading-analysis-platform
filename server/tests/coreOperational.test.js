@@ -204,6 +204,25 @@ test("MT5 unix milliseconds convert correctly without a three-hour shift", () =>
   assert.equal(normalized.tickTime.toISOString(), "2026-01-01T00:00:00.123Z");
 });
 
+test("backend trusts bridge-normalized tick_time and does not subtract broker offset again", () => {
+  const normalized = normalizeTickTime({
+    tick_time: "2026-01-01T00:00:00.000Z",
+    raw_tick_time: "2026-01-01T03:00:00.000Z",
+    time_msc: 1767236400000,
+    clock_offset_seconds: 10800,
+  });
+  assert.equal(normalized.tickTime.toISOString(), "2026-01-01T00:00:00.000Z");
+});
+
+test("fresh bridge-normalized tick remains live", () => {
+  const normalized = normalizeTickTime({ tick_time: "2026-01-01T00:00:00.000Z", clock_offset_seconds: 7200 });
+  const state = classifyTick(normalized.tickTime, "2026-01-01T00:00:01.000Z", new Date("2026-01-01T00:00:02.000Z"));
+  assert.deepEqual(
+    { freshness: state.freshness, status: state.status, is_fresh: state.is_fresh },
+    { freshness: "live", status: "live", is_fresh: true },
+  );
+});
+
 test("past ticks remain past and current ticks remain current", () => {
   const past = classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T00:05:00.000Z"));
   const current = classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T00:00:10.000Z"));

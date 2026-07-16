@@ -77,6 +77,11 @@ const parseBrokerFormattedTimeAsUtc = (value) => {
 };
 
 const normalizeTickTime = (payload, receivedAt = new Date()) => {
+  if (payload.clock_offset_seconds !== undefined && payload.tick_time) {
+    const normalized = new Date(payload.tick_time);
+    if (Number.isNaN(normalized.getTime())) throw new Error("Invalid normalized MT5 tick time");
+    return { tickTime: normalized, warning: null };
+  }
   const candidates = [
     parseEpochMilliseconds(payload.time_msc),
     parseEpochMilliseconds(payload.tick_time_msc),
