@@ -6,6 +6,9 @@ const { detectH4Zones, classifyZone } = require("../services/coreZoneService");
 const { displayPriceFrom, classifyTick, normalizeTickTime } = require("../services/liveTickService");
 const { acceptedLivePrice, nearZone } = require("../services/coreSetupService");
 const { classifyCandleFreshness } = require("../services/mt5MarketMetadataService");
+const { getBucketStart } = require("../services/mt5MarketMetadataService");
+const { buildFormingCandle } = require("../services/formingCandleService");
+const { classifyBridgeRuntime } = require("../services/bridgeRuntimeService");
 const { buildAlertDedupeKey } = require("../services/alertService");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
 
@@ -52,6 +55,43 @@ test("live tick display price uses bid/ask midpoint first", () => {
 test("tick classification separates live and stale using receipt time", () => {
   assert.equal(classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T00:00:02.000Z")).status, "live");
   assert.equal(classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", new Date("2026-01-01T01:00:00.000Z")).status, "stale");
+});
+
+test("tick freshness has exact live delayed stale thresholds", () => {
+  const received = "2026-01-01T00:00:00.000Z";
+  assert.equal(classifyTick(received, received, new Date("2026-01-01T00:00:15.000Z")).status, "live");
+  assert.equal(classifyTick(received, received, new Date("2026-01-01T00:00:16.000Z")).status, "delayed");
+  assert.equal(classifyTick(received, received, new Date("2026-01-01T00:01:01.000Z")).status, "stale");
+  assert.equal(classifyTick(null, null, new Date(received)).status, "unavailable");
+});
+
+test("H1 H4 and D1 UTC buckets are deterministic", () => {
+  const now = new Date("2026-01-01T13:45:00.000Z");
+  assert.equal(getBucketStart("H1", now).toISOString(), "2026-01-01T13:00:00.000Z");
+  assert.equal(getBucketStart("H4", now).toISOString(), "2026-01-01T12:00:00.000Z");
+  assert.equal(getBucketStart("D1", now).toISOString(), "2026-01-01T00:00:00.000Z");
+});
+
+test("forming candle retains open and updates high low close", () => {
+  const state = buildFormingCandle({ timeframe: "H1", now: new Date("2026-01-01T13:45:00Z"), latestConfirmedClose: 99,
+    tickRows: [{ display_price: 100, tick_time: "2026-01-01T13:01:00Z" }, { display_price: 105, tick_time: "2026-01-01T13:02:00Z" }, { display_price: 98, tick_time: "2026-01-01T13:03:00Z" }, { display_price: 102, tick_time: "2026-01-01T13:04:00Z" }] });
+  assert.deepEqual({ open: state.open, high: state.high, low: state.low, close: state.close, status: state.status }, { open: 100, high: 105, low: 98, close: 102, status: "forming_current" });
+});
+
+test("forming candle is excluded from EMA and zone evidence", () => {
+  const history = candles(220, 100);
+  const forming = { ...history.at(-1), close: 999999, status: "forming_current", isForming: true };
+  const base = calculateEmaStateFromCandles("BTCUSD", "H1", history);
+  const withForming = calculateEmaStateFromCandles("BTCUSD", "H1", [...history, forming]);
+  assert.equal(withForming.ema_200, base.ema_200);
+  assert.deepEqual(detectH4Zones([...flatH4(50), forming]), detectH4Zones(flatH4(50)));
+});
+
+test("continuous bridge heartbeat expires truthfully", () => {
+  const row = { heartbeat_at: "2026-01-01T00:00:00Z", terminal_connected: true, status: "running" };
+  assert.equal(classifyBridgeRuntime(row, new Date("2026-01-01T00:00:20Z")).status, "available");
+  assert.equal(classifyBridgeRuntime(row, new Date("2026-01-01T00:00:21Z")).status, "stale");
+  assert.equal(classifyBridgeRuntime(null).process_count, 0);
 });
 
 test("EMA 200 uses closed candle set and returns bullish state", () => {
@@ -180,11 +220,11 @@ test("future tick timestamp is handled explicitly", () => {
   assert.equal(state.clock_skew_seconds, 300);
 });
 
-test("older broker event time can still be live when received recently", () => {
+test("old broker event received recently is market closed rather than live", () => {
   const state = classifyTick("2026-01-01T00:00:00.000Z", "2026-01-01T00:03:00.000Z", new Date("2026-01-01T00:03:10.000Z"));
-  assert.equal(state.status, "live");
-  assert.equal(state.freshness, "live");
-  assert.equal(state.is_fresh, true);
+  assert.equal(state.status, "market_closed");
+  assert.equal(state.freshness, "market_closed");
+  assert.equal(state.is_fresh, false);
   assert.equal(state.received_age_seconds, 10);
   assert.equal(state.clock_skew_seconds, -180);
 });

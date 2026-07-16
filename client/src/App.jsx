@@ -10,8 +10,9 @@ import { useLivePrices } from "./hooks/useLivePrices";
 import { useFormingCandles } from "./hooks/useFormingCandles";
 import { CHART_TIMEFRAMES, getAnalysisTimeframe } from "./config/timeframes";
 import api from "./services/api";
+import { formatSastTime } from "./utils/time";
 
-const formatTime = (value) => value ? new Date(value).toLocaleTimeString() : "—";
+const formatTime = formatSastTime;
 const TRACKED_ASSETS = new Set(["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"]);
 const ALLOWED_CHART_TIMEFRAMES = new Set(CHART_TIMEFRAMES);
 const initialParam = (name, allowed, fallback) => {
@@ -50,7 +51,7 @@ function App() {
   const activeLivePrices = liveMode ? live.prices : {};
   const selectedLiveQuote = activeLivePrices[selectedAsset];
   const visibleCandles = useFormingCandles(selectedCandles, selectedLiveQuote, selectedAsset, selectedTimeframe, liveMode);
-  const latestPrice = selectedLiveQuote?.price ?? visibleCandles.at(-1)?.close;
+  const latestPrice = selectedLiveQuote?.display_price ?? selectedLiveQuote?.price ?? visibleCandles.at(-1)?.close;
   const selectedFreshness = systemHealth?.latest_mt5_candles?.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
   const selectedStaleWarning = systemHealth?.stale_data_warnings?.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
 
@@ -70,7 +71,9 @@ function App() {
       }
     };
     loadHealth();
-    const timer = window.setInterval(loadHealth, 30000);
+    let inFlight = false;
+    const guardedLoad = async () => { if (inFlight) return; inFlight = true; try { await loadHealth(); } finally { inFlight = false; } };
+    const timer = window.setInterval(guardedLoad, 15000);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
 
@@ -103,8 +106,10 @@ function App() {
           <span className={`connection-state connection-${live.status}`} title={live.error || "Live provider connection status"}>{live.status}</span>
           <span>Data: MT5 Broker</span>
           <span>Health: {systemHealth?.application_status || "checking"}</span>
-          <span title={selectedStaleWarning?.status || ""}>Fresh: {formatTime(selectedFreshness?.latest_candle_time)}</span>
-          <span>Price: {formatTime(live.lastUpdated)}</span>
+          <span title={selectedStaleWarning?.status || ""}>Latest closed {getAnalysisTimeframe(selectedTimeframe)}: {formatTime(selectedFreshness?.latest_closed_candle_time)}</span>
+          <span>Next {getAnalysisTimeframe(selectedTimeframe)} close: {formatTime(selectedFreshness?.next_expected_close_time)}</span>
+          <span>Price updated: {formatTime(live.lastUpdated)}</span>
+          <span>Bridge heartbeat: {formatTime(systemHealth?.continuous_bridge_heartbeat)}</span>
           <span>Scan: {formatTime(live.lastScan?.lastSuccessfulScanAt)}</span>
           <button type="button" className={liveMode ? "active" : ""} onClick={() => setLiveMode((value) => !value)}>Live mode: {liveMode ? "On" : "Off"}</button>
           <button type="button" onClick={() => setAnalysisVisible((value) => !value)}>{analysisVisible ? "Hide analysis" : "Show analysis"}</button>

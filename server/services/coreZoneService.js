@@ -131,6 +131,7 @@ const buildZoneCandidate = (candles, baseStart, baseLength) => {
 };
 
 const detectH4Zones = (candles, options = {}) => {
+  candles = candles.filter((candle) => candle.status !== "forming_current" && candle.isForming !== true);
   const zones = [];
   const rejections = new Map();
   const lookback = Math.max(20, Number(options.lookback || CONFIG.lookback));

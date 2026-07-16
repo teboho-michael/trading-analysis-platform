@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getDashboard } from "../services/dashboardService";
 
 export const useDashboard = () => {
   const [dashboard, setDashboard] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const inFlight = useRef(false);
 
   const fetchDashboard = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
       setError("");
       const data = await getDashboard();
@@ -18,6 +21,7 @@ export const useDashboard = () => {
           "Unable to load dashboard data.",
       );
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
   };
@@ -25,7 +29,7 @@ export const useDashboard = () => {
   useEffect(() => {
     fetchDashboard();
 
-    const interval = setInterval(fetchDashboard, 60000);
+    const interval = setInterval(fetchDashboard, 30000);
 
     return () => clearInterval(interval);
   }, []);

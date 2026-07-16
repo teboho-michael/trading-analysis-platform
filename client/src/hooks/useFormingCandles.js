@@ -13,7 +13,7 @@ export const useFormingCandles = (candles, quote, symbol, timeframe, enabled) =>
 
   useEffect(() => {
     if (!enabled || !quote || quote.marketStatus === "closed" || !candles.length) return;
-    const price = Number(quote.price);
+    const price = Number(quote.display_price ?? quote.price);
     const quoteTime = Math.floor(new Date(quote.timestamp).getTime() / 1000);
     const duration = DURATION_SECONDS[timeframe];
     const latest = candles.at(-1);

@@ -8,6 +8,8 @@ const {
   getNextExpectedClose,
   classifyCandleFreshness,
 } = require("../services/mt5MarketMetadataService");
+const { getFormingCandle } = require("../services/formingCandleService");
+const { getLatestTicks } = require("../services/liveTickService");
 
 const MAX_LIMIT = 2000;
 const DEFAULT_LIMIT = 500;
@@ -128,7 +130,8 @@ const getCandlesByAssetAndTimeframe = async (req, res) => {
     const latestClosed = candles
       .filter((candle) => new Date(candle.candle_time) <= closedCutoff)
       .at(-1)?.candle_time || null;
-    const formingCandle = latestStored && latestStored !== latestClosed ? latestStored : null;
+    const liveQuote = (await getLatestTicks([symbol])).prices[0];
+    const authoritativeForming = liveQuote?.status === "live" ? await getFormingCandle(symbol, timeframe) : null;
     const freshness = classifyCandleFreshness({
       timeframe,
       latestClosedCandleTime: latestClosed,
@@ -154,9 +157,10 @@ const getCandlesByAssetAndTimeframe = async (req, res) => {
       latest_candle_time: latestStored,
       latest_stored_candle_time: latestStored,
       latest_closed_candle_time: latestClosed,
-      forming_candle_present: Boolean(formingCandle),
-      forming_candle_time: formingCandle,
-      next_expected_close_time: getNextExpectedClose(timeframe, latestClosed || latestStored),
+      forming_candle_present: Boolean(authoritativeForming),
+      forming_candle_time: authoritativeForming?.candle_time || null,
+      forming_candle: authoritativeForming,
+      next_expected_close_time: authoritativeForming?.bucket_end || getNextExpectedClose(timeframe, latestClosed || latestStored),
       ...freshness,
       candles,
     });

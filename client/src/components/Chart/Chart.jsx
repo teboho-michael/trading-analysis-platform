@@ -17,7 +17,7 @@ const calculateEmaSeries = (candles, period = 200) => {
   return values;
 };
 
-export default function Chart({ candles, activeZone, risk, latestSignal }) {
+export default function Chart({ candles, activeZone, risk, latestSignal, liveQuote }) {
   const chartContainerRef = useRef(null);
   const zoneOverlayRef = useRef(null);
 
@@ -222,6 +222,13 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       addLevel(signalLevels.takeProfit2, "#16a34a", "TAKE PROFIT 2");
     }
 
+    const livePrice = liveQuote?.is_fresh === true
+      ? Number(liveQuote.display_price ?? liveQuote.price ?? liveQuote.mid)
+      : null;
+    if (Number.isFinite(livePrice)) {
+      addLevel(livePrice, "#38bdf8", "MT5 LIVE", 2);
+    }
+
     chart.timeScale().fitContent();
 
     const overlayTimer = window.setTimeout(updateZoneOverlay, 100);
@@ -243,7 +250,7 @@ export default function Chart({ candles, activeZone, risk, latestSignal }) {
       chart.timeScale().unsubscribeVisibleTimeRangeChange(updateZoneOverlay);
       chart.remove();
     };
-  }, [candles, activeZone, risk, latestSignal]);
+  }, [candles, activeZone, risk, latestSignal, liveQuote]);
 
   return (
     <div className="chart-canvas">

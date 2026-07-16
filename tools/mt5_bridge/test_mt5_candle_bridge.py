@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+import tempfile
 
 
 fake_mt5 = types.SimpleNamespace(TIMEFRAME_D1=1, TIMEFRAME_H4=2, TIMEFRAME_H1=3)
@@ -69,6 +70,50 @@ class BrokerClockNormalizationTests(unittest.TestCase):
         normalized = bridge.normalize_collected_ticks(ticks([10800, 10800, 10800, 10800, -86400 + 10800]), NOW)
         old = datetime.fromisoformat(normalized[-1]["tick_time"].replace("Z", "+00:00"))
         self.assertEqual((NOW - old).total_seconds(), 86400)
+
+    def test_candle_utc_plus_three_normalizes_once(self):
+        raw = NOW.timestamp() + 10800
+        normalized = bridge.normalize_candle_timestamp(raw, 10800, NOW)
+        self.assertEqual(normalized, "2026-01-01T00:00:00Z")
+        self.assertEqual(bridge.normalize_candle_timestamp(NOW.timestamp(), 0, NOW), normalized)
+
+    def test_candle_boundaries_remain_exact(self):
+        for hour in (0, 4, 8, 12):
+            moment = datetime(2026, 1, 1, hour, tzinfo=timezone.utc)
+            normalized = datetime.fromisoformat(bridge.normalize_candle_timestamp(moment.timestamp() + 10800, 10800, moment).replace("Z", "+00:00"))
+            self.assertEqual((normalized.minute, normalized.second), (0, 0))
+            self.assertEqual(normalized.hour, hour)
+
+    def test_future_candle_rejected_and_old_retained(self):
+        with self.assertRaisesRegex(RuntimeError, "future"):
+            bridge.normalize_candle_timestamp(NOW.timestamp() + 61, 0, NOW)
+        old = bridge.normalize_candle_timestamp(NOW.timestamp() - 86400, 0, NOW)
+        self.assertEqual(old, "2025-12-31T00:00:00Z")
+
+    def test_incremental_limit_uses_small_overlap(self):
+        original = bridge.api_json
+        bridge.api_json = lambda _path: {"latest_closed_candle_time": "2025-12-31T23:00:00Z"}
+        original_now = bridge.datetime
+        try:
+            class FixedDateTime(datetime):
+                @classmethod
+                def now(cls, tz=None): return NOW
+            bridge.datetime = FixedDateTime
+            self.assertEqual(bridge.incremental_limit("BTCUSD", "H1"), 4)
+        finally:
+            bridge.api_json = original
+            bridge.datetime = original_now
+
+    def test_duplicate_continuous_lock_is_rejected(self):
+        original = bridge.CONTINUOUS_LOCK_FILE
+        try:
+            bridge.CONTINUOUS_LOCK_FILE = Path(tempfile.gettempdir()) / "tap-test-continuous.lock"
+            bridge.CONTINUOUS_LOCK_FILE.write_text(str(__import__("os").getpid()), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "already running"):
+                with bridge.ContinuousLock(): pass
+        finally:
+            bridge.CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+            bridge.CONTINUOUS_LOCK_FILE = original
 
 
 if __name__ == "__main__":

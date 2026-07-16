@@ -46,6 +46,9 @@ const validateCandle = (requestedSymbol, candle, index = null) => {
       `DATA_VALIDATION_ERROR: ${context} has an invalid candle_time`,
     );
   }
+  if (candleTime.getTime() > Date.now() + 60000) {
+    throw new Error(`DATA_VALIDATION_ERROR: ${context} has a future candle_time`);
+  }
 
   if (
     [open, high, low, close].some(

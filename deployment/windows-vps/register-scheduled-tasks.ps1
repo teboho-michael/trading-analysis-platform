@@ -24,9 +24,10 @@ if ($CloudflaredConfig) {
 }
 
 function Register-PlatformTask {
-  param([string]$Name, [string]$Command, [Microsoft.Management.Infrastructure.CimInstance]$Trigger)
+  param([string]$Name, [string]$Command, [Microsoft.Management.Infrastructure.CimInstance]$Trigger, [Microsoft.Management.Infrastructure.CimInstance]$Settings = $null)
   $action = New-ScheduledTaskAction -Execute $PowerShellExe -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$Command`""
-  Register-ScheduledTask -TaskName "TradingAnalysisPlatform-$Name" -Action $action -Trigger $Trigger -Description "Trading Analysis Platform $Name" -Force | Out-Null
+  if (-not $Settings) { $Settings = New-ScheduledTaskSettingsSet }
+  Register-ScheduledTask -TaskName "TradingAnalysisPlatform-$Name" -Action $action -Trigger $Trigger -Settings $Settings -Description "Trading Analysis Platform $Name" -Force | Out-Null
   Write-Host "PASS registered TradingAnalysisPlatform-$Name"
 }
 
@@ -37,7 +38,12 @@ $startupCommand = if ($CloudflaredConfig) {
 }
 
 Register-PlatformTask -Name "BackendStartup" -Command $startupCommand -Trigger (New-ScheduledTaskTrigger -AtStartup)
-Register-PlatformTask -Name "MT5BridgeCollection" -Command "& '$PythonLauncher' '$RepoRoot\tools\mt5_bridge\mt5_candle_bridge.py' --sync-all" -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Days 3650))
-Register-PlatformTask -Name "MT5LiveTicks" -Command "& '$PythonLauncher' '$RepoRoot\tools\mt5_bridge\mt5_candle_bridge.py' --ticks" -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650))
+$bridgeSettings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+$bridgeLog = "C:\TradingAnalysisPlatform\logs"
+$bridgeCommand = "New-Item -ItemType Directory -Force -Path '$bridgeLog' | Out-Null; Set-Location '$RepoRoot'; Write-Host 'TradingAnalysisPlatform:mt5-continuous-bridge'; & '$PythonLauncher' -3.14 '$RepoRoot\tools\mt5_bridge\mt5_candle_bridge.py' --run-continuous *>> '$bridgeLog\mt5-continuous-bridge.log'"
+Register-PlatformTask -Name "MT5ContinuousBridge" -Command $bridgeCommand -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Settings $bridgeSettings
+@("TradingAnalysisPlatform-MT5BridgeCollection", "TradingAnalysisPlatform-MT5LiveTicks") | ForEach-Object {
+  if (Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName $_ -Confirm:$false }
+}
 Register-PlatformTask -Name "DailyBackup" -Command "& '$ScriptRoot\backup-platform.ps1' -BackupRoot '$BackupRoot'" -Trigger (New-ScheduledTaskTrigger -Daily -At 2am)
 Register-PlatformTask -Name "HealthCheck" -Command "& '$ScriptRoot\health-check.ps1' -RepoRoot '$RepoRoot'" -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650))

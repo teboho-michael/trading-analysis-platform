@@ -19,6 +19,9 @@ try {
   Report "PASS" "backend" $health.application_status
   Report "PASS" "database" $health.database_status
   Report "PASS" "mt5-ticks" $health.mt5_tick_status
+  if ($health.continuous_bridge_status -eq "available") { Report "PASS" "continuous-bridge" $health.continuous_bridge_heartbeat } else { Report "FAIL" "continuous-bridge" $health.continuous_bridge_status }
+  if ([int]$health.continuous_bridge_process_count -eq 1) { Report "PASS" "bridge-process-count" "exactly one" } else { Report "FAIL" "bridge-process-count" $health.continuous_bridge_process_count }
+  if ($health.future_timestamp_violations.Count -gt 0) { Report "FAIL" "future-timestamps" $health.future_timestamp_violations.Count } else { Report "PASS" "future-timestamps" "none" }
   if ($health.stale_warnings.Count -gt 0) { Report "WARN" "mt5-freshness" "$($health.stale_warnings.Count) stale warnings" } else { Report "PASS" "mt5-freshness" "freshness check returned no warnings" }
 } catch {
   Report "FAIL" "backend" $_.Exception.Message
@@ -36,6 +39,11 @@ if ($freeMemoryGb -lt 1) { Report "WARN" "memory" "$freeMemoryGb GB free" } else
 
 $state = Join-Path $RepoRoot "tools\mt5_bridge\mt5_bridge_state.json"
 if (Test-Path $state) { Report "PASS" "bridge-last-success" "state file present" } else { Report "WARN" "bridge-last-success" "state file not found yet" }
+
+$bridgeTask = Get-ScheduledTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -ErrorAction SilentlyContinue
+if (-not $bridgeTask) { Report "FAIL" "bridge-task" "not registered" } elseif ($bridgeTask.State -ne "Running") { Report "FAIL" "bridge-task" $bridgeTask.State } else { Report "PASS" "bridge-task" "running" }
+$bridgeProcesses = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*TradingAnalysisPlatform:mt5-continuous-bridge*" -or $_.CommandLine -like "*mt5_candle_bridge.py*--run-continuous*" }
+if (@($bridgeProcesses).Count -eq 1) { Report "PASS" "bridge-process" "exactly one process" } else { Report "FAIL" "bridge-process" "found $(@($bridgeProcesses).Count)" }
 
 if ($script:FailCount -gt 0) {
   exit 2

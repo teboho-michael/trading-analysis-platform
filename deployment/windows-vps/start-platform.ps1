@@ -8,7 +8,6 @@ $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 $PowerShellExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 $NpmExe = (Get-Command "npm" -ErrorAction Stop).Source
-$PythonLauncher = (Get-Command "py" -ErrorAction Stop).Source
 
 function Start-OwnedProcess {
   param([string]$Name, [string]$FilePath, [string]$Arguments, [string]$WorkingDirectory)
@@ -34,9 +33,10 @@ Write-Host "PASS PostgreSQL service checked; keep PostgreSQL bound to localhost/
 
 Start-OwnedProcess -Name "backend" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:backend'; & '$NpmExe' start`"" -WorkingDirectory (Join-Path $RepoRoot "server")
 
-$bridgeScript = Join-Path $RepoRoot "tools\mt5_bridge\mt5_candle_bridge.py"
-Start-OwnedProcess -Name "mt5-bridge-sync" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:mt5-bridge-sync'; & '$PythonLauncher' '$bridgeScript' --sync-all`"" -WorkingDirectory (Split-Path $bridgeScript)
-Start-OwnedProcess -Name "mt5-live-ticks" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:mt5-live-ticks'; while (`$true) { & '$PythonLauncher' '$bridgeScript' --ticks; Start-Sleep -Seconds 15 }`"" -WorkingDirectory (Split-Path $bridgeScript)
+$bridgeTask = Get-ScheduledTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -ErrorAction SilentlyContinue
+if (-not $bridgeTask) { throw "TradingAnalysisPlatform-MT5ContinuousBridge is not registered" }
+if ($bridgeTask.State -ne "Running") { Start-ScheduledTask -TaskName $bridgeTask.TaskName }
+Write-Host "PASS continuous MT5 bridge task checked"
 
 if ($CloudflaredConfig -and (Test-Path $CloudflaredConfig)) {
   $CloudflaredExe = (Get-Command "cloudflared" -ErrorAction Stop).Source

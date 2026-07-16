@@ -12,6 +12,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 import os
+import socket
 from pathlib import Path
 from statistics import median
 import sys
@@ -27,6 +28,10 @@ STATE_FILE = Path(os.getenv("MT5_BRIDGE_STATE_FILE", BASE_DIR / "mt5_bridge_stat
 DEFAULT_SYMBOLS = ["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"]
 DEFAULT_TIMEFRAMES = ["D1", "H4", "H1"]
 DEFAULT_CANDLE_LIMIT = 500
+CONTINUOUS_LOCK_FILE = BASE_DIR / "mt5_continuous_bridge.lock"
+TICK_INTERVAL_SECONDS = 5
+CANDLE_INTERVAL_SECONDS = {"H1": 60, "H4": 300, "D1": 900}
+TIMEFRAME_SECONDS = {"H1": 3600, "H4": 14400, "D1": 86400}
 
 SYMBOL_MAP = {
     "BTCUSD": ["BTCUSD"],
@@ -62,7 +67,9 @@ MT5_BRIDGE_SECRET = config_value("MT5_BRIDGE_SECRET")
 MAX_RETRIES = int(config_value("MT5_BRIDGE_RETRIES", 3))
 RETRY_BASE_SECONDS = float(config_value("MT5_BRIDGE_RETRY_BASE_SECONDS", 2))
 CANDLE_LIMIT = int(config_value("MT5_BRIDGE_CANDLE_LIMIT", DEFAULT_CANDLE_LIMIT))
+DEBUG = str(config_value("MT5_BRIDGE_DEBUG", "")).lower() in {"1", "true", "yes"}
 MAX_TICK_FUTURE_SKEW_SECONDS = float(config_value("MT5_TICK_FUTURE_TOLERANCE_SECONDS", 60))
+MAX_CANDLE_FUTURE_SKEW_SECONDS = 60
 BROKER_OFFSET_MIN_SYMBOLS = 3
 BROKER_OFFSET_AGREEMENT_SECONDS = 120
 BROKER_OFFSET_WHOLE_HOUR_TOLERANCE_SECONDS = 120
@@ -138,13 +145,12 @@ def normalize_collected_ticks(raw_ticks: list[dict], current_utc: datetime) -> l
         normalized_skew = (normalized_time - current_utc).total_seconds()
         raw_time_iso = datetime.fromtimestamp(raw_tick["raw_epoch_seconds"], tz=timezone.utc).isoformat().replace("+00:00", "Z")
         normalized_time_iso = normalized_time.isoformat().replace("+00:00", "Z")
-        print(
-            f"{raw_tick['platform_symbol']}/{raw_tick['broker_symbol']} tick diagnostic: "
-            f"raw_time={raw_tick['raw_time']} raw_time_msc={raw_tick['raw_time_msc']} "
-            f"raw_emitted_timestamp={raw_time_iso} detected_broker_offset_seconds={broker_offset_seconds} "
-            f"normalized_utc_timestamp={normalized_time_iso} normalized_skew_seconds={normalized_skew:.3f}",
-            flush=True,
-        )
+        if DEBUG:
+            print(
+                f"{raw_tick['platform_symbol']}/{raw_tick['broker_symbol']} tick diagnostic: "
+                f"raw_time={raw_tick['raw_time']} raw_time_msc={raw_tick['raw_time_msc']} "
+                f"raw_emitted_timestamp={raw_time_iso} detected_broker_offset_seconds={broker_offset_seconds} "
+                f"normalized_utc_timestamp={normalized_time_iso} normalized_skew_seconds={normalized_skew:.3f}", flush=True)
         if normalized_skew > MAX_TICK_FUTURE_SKEW_SECONDS:
             raise RuntimeError(
                 f"{raw_tick['platform_symbol']} timestamp-normalization error: normalized tick timestamp "
@@ -162,6 +168,13 @@ def normalize_collected_ticks(raw_ticks: list[dict], current_utc: datetime) -> l
             "source": "mt5_broker",
         })
     return normalized_ticks
+
+
+def normalize_candle_timestamp(raw_epoch, broker_offset_seconds: int, current_utc: datetime) -> str:
+    normalized = datetime.fromtimestamp(float(raw_epoch) - broker_offset_seconds, timezone.utc)
+    if (normalized.timestamp() - current_utc.timestamp()) > MAX_CANDLE_FUTURE_SKEW_SECONDS:
+        raise RuntimeError("normalized candle timestamp is unreasonably in the future")
+    return normalized.isoformat().replace("+00:00", "Z")
 
 
 def load_state() -> dict:
@@ -191,15 +204,19 @@ def select_broker_symbol(platform_symbol: str) -> str | None:
     return None
 
 
-def collect_closed_candles(broker_symbol: str, timeframe: str, limit: int) -> list[dict]:
+def collect_closed_candles(broker_symbol: str, timeframe: str, limit: int, broker_offset_seconds: int = 0) -> list[dict]:
     rates = mt5.copy_rates_from_pos(broker_symbol, TIMEFRAMES[timeframe], 1, limit)
     if rates is None:
         raise RuntimeError(f"MT5 returned no rates: {mt5.last_error()}")
     candles = []
+    now = datetime.now(timezone.utc)
     for rate in rates:
+        normalized_time = normalize_candle_timestamp(rate["time"], broker_offset_seconds, now)
         candles.append({
-            "time": iso_time(rate["time"]),
-            "date_time": iso_time(rate["time"]),
+            "time": normalized_time,
+            "date_time": normalized_time,
+            "raw_candle_time": iso_time(rate["time"]),
+            "clock_offset_seconds": broker_offset_seconds,
             "open": float(rate["open"]),
             "high": float(rate["high"]),
             "low": float(rate["low"]),
@@ -261,6 +278,36 @@ def post_ticks(payload: dict) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def api_json(path: str) -> dict:
+    with request.urlopen(f"{PLATFORM_API_BASE_URL.rstrip('/')}{path}", timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def post_heartbeat(payload: dict) -> dict:
+    if not MT5_BRIDGE_SECRET:
+        raise RuntimeError("Set MT5_BRIDGE_SECRET in the environment or mt5_bridge.local.json")
+    req = request.Request(f"{PLATFORM_API_BASE_URL.rstrip('/')}/api/broker/mt5/heartbeat",
+        data=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json", "x-mt5-bridge-secret": MT5_BRIDGE_SECRET}, method="POST")
+    with request.urlopen(req, timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def incremental_limit(platform_symbol: str, timeframe: str, repair: bool = False) -> int:
+    if repair:
+        return CANDLE_LIMIT
+    try:
+        data = api_json(f"/api/candles/{platform_symbol}/{timeframe}?limit=1")
+        latest = data.get("latest_closed_candle_time")
+        if not latest:
+            return CANDLE_LIMIT
+        latest_dt = datetime.fromisoformat(latest.replace("Z", "+00:00"))
+        missing = max(0, int((datetime.now(timezone.utc) - latest_dt).total_seconds() / TIMEFRAME_SECONDS[timeframe]))
+        return min(CANDLE_LIMIT, max(3, missing + 3))
+    except Exception as exc:
+        print(f"{platform_symbol} {timeframe}: latest-candle lookup failed; using bounded repair batch: {exc}", flush=True)
+        return CANDLE_LIMIT
+
+
 def with_retries(label: str, action):
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -277,7 +324,7 @@ def with_retries(label: str, action):
         time.sleep(delay)
 
 
-def sync_symbol_timeframe(platform_symbol: str, timeframe: str, state: dict) -> bool:
+def sync_symbol_timeframe(platform_symbol: str, timeframe: str, state: dict, broker_offset_seconds: int = 0, repair: bool = False) -> bool:
     started_at = utc_now()
     broker_symbol = select_broker_symbol(platform_symbol)
     if not broker_symbol:
@@ -285,7 +332,8 @@ def sync_symbol_timeframe(platform_symbol: str, timeframe: str, state: dict) -> 
         return False
 
     label = f"{platform_symbol}/{broker_symbol} {timeframe}"
-    candles = with_retries(label, lambda: collect_closed_candles(broker_symbol, timeframe, CANDLE_LIMIT))
+    limit = incremental_limit(platform_symbol, timeframe, repair)
+    candles = with_retries(label, lambda: collect_closed_candles(broker_symbol, timeframe, limit, broker_offset_seconds))
     result = with_retries(label, lambda: post_import({
         "symbol": platform_symbol,
         "broker_symbol": broker_symbol,
@@ -329,6 +377,7 @@ def sync_ticks(symbols: list[str], state: dict) -> bool:
             failed.append(platform_symbol)
     ticks = normalize_collected_ticks(raw_ticks, datetime.now(timezone.utc)) if raw_ticks else []
     if ticks:
+        state["broker_offset_seconds"] = ticks[0]["clock_offset_seconds"]
         result = with_retries("live ticks import", lambda: post_ticks({"ticks": ticks, "started_at": utc_now()}))
         summary = result.get("import", result)
         state["latest_ticks"] = {
@@ -345,10 +394,78 @@ def sync_ticks(symbols: list[str], state: dict) -> bool:
     return not failed
 
 
+def collect_and_normalize_ticks(symbols: list[str]) -> tuple[list[dict], int, list[str]]:
+    raw_ticks, failed = [], []
+    for platform_symbol in symbols:
+        broker_symbol = select_broker_symbol(platform_symbol)
+        if not broker_symbol:
+            failed.append(platform_symbol); continue
+        try: raw_ticks.append(with_retries(f"{platform_symbol}/{broker_symbol} tick", lambda: collect_tick(platform_symbol, broker_symbol)))
+        except Exception as exc: print(f"{platform_symbol} tick: {exc}", flush=True); failed.append(platform_symbol)
+    now = datetime.now(timezone.utc)
+    offset = detect_broker_clock_offset(raw_ticks, now) if raw_ticks else 0
+    return normalize_collected_ticks(raw_ticks, now) if raw_ticks else [], offset, failed
+
+
+class ContinuousLock:
+    def __enter__(self):
+        try:
+            self.fd = os.open(CONTINUOUS_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                existing_pid = int(CONTINUOUS_LOCK_FILE.read_text(encoding="utf-8").strip())
+                os.kill(existing_pid, 0)
+                raise RuntimeError(f"continuous bridge already running with PID {existing_pid}")
+            except (ValueError, ProcessLookupError, PermissionError):
+                CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+                self.fd = os.open(CONTINUOUS_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(self.fd, str(os.getpid()).encode("ascii")); os.close(self.fd)
+        return self
+    def __exit__(self, *_args): CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+
+
+def run_continuous() -> int:
+    if not mt5.initialize(): raise RuntimeError(f"MT5 initialize failed: {mt5.last_error()}")
+    terminal = mt5.terminal_info()
+    if terminal is None or not getattr(terminal, "connected", False): mt5.shutdown(); raise RuntimeError("MT5 terminal is not connected")
+    state, started_at, last_candle = load_state(), utc_now(), {tf: 0.0 for tf in DEFAULT_TIMEFRAMES}
+    try:
+        with ContinuousLock():
+            print("TradingAnalysisPlatform:mt5-continuous-bridge started", flush=True)
+            while True:
+                cycle = time.monotonic(); offset = state.get("broker_offset_seconds"); tick_success = False; candle_success = False
+                try:
+                    ticks, offset, failed = collect_and_normalize_ticks(DEFAULT_SYMBOLS)
+                    if ticks:
+                        with_retries("live ticks import", lambda: post_ticks({"ticks": ticks, "started_at": utc_now()})); tick_success = True
+                        state["broker_offset_seconds"] = offset
+                    if failed: print(f"tick failures isolated: {', '.join(failed)}", flush=True)
+                except Exception as exc: print(f"tick cycle failed: {exc}", flush=True)
+                for timeframe in DEFAULT_TIMEFRAMES:
+                    if cycle - last_candle[timeframe] < CANDLE_INTERVAL_SECONDS[timeframe]: continue
+                    if offset is None:
+                        print(f"{timeframe}: candle sync deferred until broker offset is known", flush=True); continue
+                    for symbol in DEFAULT_SYMBOLS:
+                        try: candle_success = sync_symbol_timeframe(symbol, timeframe, state, offset) or candle_success
+                        except Exception as exc: print(f"{symbol} {timeframe}: isolated sync failure: {exc}", flush=True)
+                    last_candle[timeframe] = cycle
+                save_state(state)
+                try: post_heartbeat({"process_id": os.getpid(), "host_name": socket.gethostname(), "started_at": started_at,
+                    "heartbeat_at": utc_now(), "broker_offset_seconds": offset, "terminal_connected": True, "status": "running",
+                    "last_tick_import_at": utc_now() if tick_success else None, "last_candle_sync_at": utc_now() if candle_success else None})
+                except Exception as exc: print(f"heartbeat failed: {exc}", flush=True)
+                time.sleep(max(0.25, TICK_INTERVAL_SECONDS - (time.monotonic() - cycle)))
+    except KeyboardInterrupt:
+        print("continuous bridge shutdown requested", flush=True); return 0
+    finally: mt5.shutdown()
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Sync closed MT5 candles into Trading Analysis Platform")
     parser.add_argument("--sync-all", action="store_true", help="Sync all configured symbols and D1/H4/H1 timeframes")
     parser.add_argument("--ticks", action="store_true", help="Sync latest live ticks for selected symbols")
+    parser.add_argument("--run-continuous", action="store_true", help="Run the persistent tick and candle scheduler")
+    parser.add_argument("--repair-missing", action="store_true", help="Run a safe full MT5 candle coverage repair")
     parser.add_argument("--symbol", choices=DEFAULT_SYMBOLS, help="Sync one platform symbol")
     parser.add_argument("--timeframe", choices=DEFAULT_TIMEFRAMES, help="Sync one timeframe")
     parser.add_argument("--limit", type=int, default=CANDLE_LIMIT, help="Closed candles to request per symbol/timeframe")
@@ -360,6 +477,8 @@ def run() -> int:
     global CANDLE_LIMIT
     CANDLE_LIMIT = args.limit
 
+    if args.run_continuous: return run_continuous()
+    if args.repair_missing: args.sync_all = True
     if not args.sync_all and not args.ticks and not (args.symbol and args.timeframe):
         raise RuntimeError("Use --sync-all, --ticks, or provide both --symbol and --timeframe")
 
@@ -380,7 +499,7 @@ def run() -> int:
         for symbol in symbols:
             for timeframe in timeframes:
                 try:
-                    if not sync_symbol_timeframe(symbol, timeframe, state):
+                    if not sync_symbol_timeframe(symbol, timeframe, state, int(state.get("broker_offset_seconds", 0)), args.repair_missing):
                         failed.append(f"{symbol}:{timeframe}")
                 except Exception as exc:
                     print(f"{symbol} {timeframe}: {exc}", flush=True)

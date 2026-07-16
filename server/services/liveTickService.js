@@ -5,11 +5,15 @@ const { resolveOpenAlerts } = require("./alertService");
 const SOURCE = "mt5_broker";
 const STATUS = {
   LIVE: "live",
+  DELAYED: "delayed",
+  MARKET_CLOSED: "market_closed",
   STALE: "stale",
   UNAVAILABLE: "unavailable",
 };
 
-const staleAfterSeconds = () => Math.max(Number(process.env.MT5_TICK_STALE_AFTER_SECONDS || 180), 30);
+const LIVE_MAX_AGE_SECONDS = 15;
+const DELAYED_MAX_AGE_SECONDS = 60;
+const staleAfterSeconds = () => DELAYED_MAX_AGE_SECONDS;
 const skewToleranceSeconds = () => Math.max(Number(process.env.MT5_TICK_SKEW_TOLERANCE_SECONDS || process.env.MT5_TICK_FUTURE_TOLERANCE_SECONDS || 60), 5);
 const round = (value, digits = 10) => Number(Number(value).toFixed(digits));
 const isPositive = (value) => Number.isFinite(Number(value)) && Number(value) > 0;
@@ -27,6 +31,7 @@ const displayPriceFrom = ({ bid, ask, last }) => {
 };
 
 const classifyTick = (tickTime, receivedAt = new Date(), now = new Date()) => {
+  if (!tickTime || !receivedAt) return { freshness: "missing", status: STATUS.UNAVAILABLE, is_fresh: false, age_seconds: null, received_age_seconds: null, clock_skew_seconds: null };
   const parsed = new Date(tickTime);
   const received = new Date(receivedAt);
   const eventAgeSeconds = Math.floor((now.getTime() - parsed.getTime()) / 1000);
@@ -48,8 +53,14 @@ const classifyTick = (tickTime, receivedAt = new Date(), now = new Date()) => {
       warning: "MT5 tick timestamp is ahead of receipt time beyond tolerance.",
     };
   }
-  if (safeReceivedAge > staleAfterSeconds()) {
+  if (safeReceivedAge > DELAYED_MAX_AGE_SECONDS) {
     return { freshness: "stale", status: STATUS.STALE, is_fresh: false, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
+  }
+  if (safeEventAge > DELAYED_MAX_AGE_SECONDS && safeReceivedAge <= LIVE_MAX_AGE_SECONDS) {
+    return { freshness: "market_closed", status: STATUS.MARKET_CLOSED, is_fresh: false, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
+  }
+  if (safeReceivedAge > LIVE_MAX_AGE_SECONDS) {
+    return { freshness: "delayed", status: STATUS.DELAYED, is_fresh: false, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
   }
   return { freshness: "live", status: STATUS.LIVE, is_fresh: true, age_seconds: safeEventAge, received_age_seconds: safeReceivedAge, clock_skew_seconds: clockSkewSeconds };
 };
@@ -200,7 +211,7 @@ const mapTickRow = (row) => {
     is_fresh: state.is_fresh,
     source: SOURCE,
     provider: "XM MT5",
-    marketStatus: "unknown",
+    marketStatus: state.status === STATUS.MARKET_CLOSED ? "closed" : state.status === STATUS.LIVE ? "open" : "unknown",
     isProxy: false,
   };
 };
@@ -263,4 +274,6 @@ module.exports = {
   getLatestTicks,
   importTicks,
   normalizeTickTime,
+  LIVE_MAX_AGE_SECONDS,
+  DELAYED_MAX_AGE_SECONDS,
 };

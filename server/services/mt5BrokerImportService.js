@@ -7,6 +7,7 @@ const {
 const { validateCandle } = require("../market/candleValidator");
 const { MT5_SYMBOL_MAP } = require("./mt5SymbolMapService");
 const { getBrokerSymbol } = require("./mt5MarketMetadataService");
+const { refreshConfirmedAnalysis } = require("./liveAnalysisRefreshService");
 
 const SOURCE = "mt5_broker";
 
@@ -53,6 +54,9 @@ const validatePayload = (payload) => {
 };
 
 const mapCandle = (symbol, candle, index) => {
+  if (candle.clock_offset_seconds !== undefined && (typeof normalizeCandleTime(candle) !== "string" || !normalizeCandleTime(candle).endsWith("Z"))) {
+    throw validationError(`Candle ${index} must contain an explicitly normalized UTC Z timestamp`);
+  }
   const normalized = {
     open: candle.open,
     high: candle.high,
@@ -147,6 +151,9 @@ const importCandles = async (payload) => {
     .map((row) => new Date(row.candle_time))
     .filter((date) => !Number.isNaN(date.getTime()))
     .sort((a, b) => a - b);
+  let analysisRefresh = null;
+  try { analysisRefresh = saved.length ? await refreshConfirmedAnalysis(symbol) : null; }
+  catch (error) { analysisRefresh = { symbol, refreshed: false, error: error.message }; }
 
   return {
     symbol,
@@ -160,6 +167,7 @@ const importCandles = async (payload) => {
     latest: sortedTimes.at(-1)?.toISOString() || null,
     source: SOURCE,
     rejected,
+    analysis_refresh: analysisRefresh,
   };
 };
 

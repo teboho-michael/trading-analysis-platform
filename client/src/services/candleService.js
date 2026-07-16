@@ -51,8 +51,11 @@ export const getCandles = async (symbol, timeframe) => {
     );
   }
 
+  const responseCandles = response.data.forming_candle
+    ? [...response.data.candles, { ...response.data.forming_candle, isForming: true }]
+    : response.data.candles;
   return {
-    candles: normalizeCandlesForChart(response.data.candles, symbol, timeframe),
+    candles: normalizeCandlesForChart(responseCandles, symbol, timeframe),
     metadata: {
       symbol: response.data.platform_symbol,
       brokerSymbol: response.data.broker_symbol,
@@ -67,6 +70,7 @@ export const getCandles = async (symbol, timeframe) => {
       latestClosedCandleTime: response.data.latest_closed_candle_time,
       formingCandlePresent: response.data.forming_candle_present,
       formingCandleTime: response.data.forming_candle_time,
+      formingCandle: response.data.forming_candle,
       nextExpectedCloseTime: response.data.next_expected_close_time,
       freshness: response.data.freshness,
       reason: response.data.reason,

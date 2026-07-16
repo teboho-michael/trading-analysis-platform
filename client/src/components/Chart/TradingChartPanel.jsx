@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import Chart from "./Chart";
 import ChartToolbar from "./ChartToolbar";
 import { collectMarketData } from "../../services/marketService";
+import { formatSastTime } from "../../utils/time";
 
-const formatDateTime = (value) => value ? new Date(value).toLocaleString() : "—";
+const formatDateTime = formatSastTime;
 
 export default function TradingChartPanel({
   candles,
@@ -21,7 +22,7 @@ export default function TradingChartPanel({
   const [collecting, setCollecting] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
-  const latestPrice = liveQuote?.price ?? candles.at(-1)?.close;
+  const latestPrice = liveQuote?.display_price ?? liveQuote?.price ?? candles.at(-1)?.close;
   const isForming = candles.at(-1)?.isForming === true;
   const activeZone =
     ["active", "tested"].includes(selectedAssetData?.activeZone?.status) &&
@@ -140,6 +141,7 @@ export default function TradingChartPanel({
           activeZone={activeZone}
           risk={selectedAssetData?.risk}
           latestSignal={selectedAssetData?.latestSignal}
+          liveQuote={liveQuote}
         />
       ) : (
         <div className="chart-state">

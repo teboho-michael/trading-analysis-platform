@@ -49,6 +49,19 @@ const getNextExpectedClose = (timeframe, candleTime) => {
   return new Date(timestamp + duration * 1000).toISOString();
 };
 
+const getBucketStart = (timeframe, value = new Date()) => {
+  const duration = TIMEFRAME_SECONDS[timeframe];
+  const timestamp = new Date(value).getTime();
+  if (!duration || !Number.isFinite(timestamp)) return null;
+  const bucketMs = duration * 1000;
+  return new Date(Math.floor(timestamp / bucketMs) * bucketMs);
+};
+
+const getLatestExpectedClosedBucket = (timeframe, now = new Date()) => {
+  const bucket = getBucketStart(timeframe, now);
+  return bucket ? new Date(bucket.getTime() - TIMEFRAME_SECONDS[timeframe] * 1000) : null;
+};
+
 const getClosedCandleCutoff = (timeframe, now = new Date()) => {
   const duration = TIMEFRAME_SECONDS[timeframe];
   if (!duration) return now;
@@ -83,12 +96,14 @@ const classifyCandleFreshness = ({
     };
   }
 
+  const expected = getLatestExpectedClosedBucket(timeframe, now);
+  const missingBuckets = expected ? Math.max(0, Math.floor((expected.getTime() - latestTime) / (TIMEFRAME_SECONDS[timeframe] * 1000))) : 0;
   const threshold = TIMEFRAME_SECONDS[timeframe] + FRESHNESS_DELAY_SECONDS[timeframe];
   const ageSeconds = Math.max(0, Math.floor((now.getTime() - latestTime) / 1000));
   const storedTime = latestStoredCandleTime ? new Date(latestStoredCandleTime).getTime() : NaN;
   const formingCandlePresent = Number.isFinite(storedTime) && storedTime > latestTime;
 
-  if (liveTicksAvailable && formingCandlePresent && ageSeconds <= threshold + TIMEFRAME_SECONDS[timeframe]) {
+  if (liveTicksAvailable && formingCandlePresent && missingBuckets === 0) {
     return {
       freshness: "forming_current",
       market_session_status: "open",
@@ -98,7 +113,7 @@ const classifyCandleFreshness = ({
     };
   }
 
-  if (timeframe === "D1" && liveTicksAvailable && (formingCandlePresent || ageSeconds <= threshold + TIMEFRAME_SECONDS.D1)) {
+  if (timeframe === "D1" && liveTicksAvailable && missingBuckets <= 1) {
     return {
       freshness: formingCandlePresent ? "forming_current" : "current",
       market_session_status: "open",
@@ -110,7 +125,7 @@ const classifyCandleFreshness = ({
     };
   }
 
-  if (ageSeconds <= threshold) {
+  if (missingBuckets === 0) {
     return {
       freshness: "current",
       market_session_status: liveTicksAvailable ? "open" : "unknown",
@@ -131,7 +146,7 @@ const classifyCandleFreshness = ({
   }
 
   return {
-    freshness: ageSeconds <= threshold * 2 ? "delayed" : "stale",
+    freshness: missingBuckets === 1 ? "delayed" : "stale",
     market_session_status: liveTicksAvailable ? "open" : "unknown",
     stale_threshold_seconds: threshold,
     candle_age_seconds: ageSeconds,
@@ -149,6 +164,8 @@ module.exports = {
   validateSymbolAndTimeframe,
   getBrokerSymbol,
   getNextExpectedClose,
+  getBucketStart,
+  getLatestExpectedClosedBucket,
   getClosedCandleCutoff,
   classifyCandleFreshness,
 };

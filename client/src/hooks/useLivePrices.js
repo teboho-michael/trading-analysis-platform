@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getLivePrices } from "../services/liveMarketService";
 
-const POLL_INTERVAL_MS = 15000;
+const POLL_INTERVAL_MS = 5000;
 
 export const useLivePrices = (enabled) => {
   const [prices, setPrices] = useState({});
@@ -11,9 +11,11 @@ export const useLivePrices = (enabled) => {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [lastScan, setLastScan] = useState(null);
   const pricesRef = useRef({});
+  const inFlightRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabled || inFlightRef.current) return;
+    inFlightRef.current = true;
     try {
       const result = await getLivePrices();
       const next = Object.fromEntries(result.prices.map((quote) => [quote.symbol, quote]));
@@ -24,12 +26,12 @@ export const useLivePrices = (enabled) => {
       }
       const quoteTimes = result.prices.map((quote) => new Date(quote.timestamp).getTime()).filter(Number.isFinite);
       pricesRef.current = next;
-      const unavailable = result.prices.some((quote) => ["stale", "unavailable"].includes(quote.status));
+      const unavailable = result.prices.some((quote) => ["delayed", "stale", "unavailable"].includes(quote.status));
       setPrices(next); setMovements(nextMovement); setLastUpdated(quoteTimes.length ? new Date(Math.max(...quoteTimes)).toISOString() : null); setLastScan(result.lastScan); setStatus(unavailable ? "degraded" : "live"); setError(unavailable ? "MT5 live tick unavailable or stale. Candle close remains separate." : result.errors?.length ? result.errors.map((item) => `${item.symbol}: ${item.error || item.message}`).join("; ") : "");
     } catch (requestError) {
       setStatus("error");
       setError(requestError.response?.data?.error || requestError.message || "Live prices unavailable");
-    }
+    } finally { inFlightRef.current = false; }
   }, [enabled]);
 
   useEffect(() => {

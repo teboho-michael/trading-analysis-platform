@@ -7,8 +7,11 @@ export const useCandles = (symbol, timeframe) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const requestIdRef = useRef(0);
+  const inFlightRef = useRef(false);
 
   const fetchCandles = useCallback(async ({ showLoading = true } = {}) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     const requestId = ++requestIdRef.current;
 
     try {
@@ -31,6 +34,7 @@ export const useCandles = (symbol, timeframe) => {
           "Unable to load candles.",
       );
     } finally {
+      inFlightRef.current = false;
       if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [symbol, timeframe]);
@@ -42,7 +46,7 @@ export const useCandles = (symbol, timeframe) => {
 
     const interval = setInterval(
       () => fetchCandles({ showLoading: false }),
-      120000,
+      30000,
     );
 
     return () => {

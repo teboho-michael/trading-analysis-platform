@@ -35,6 +35,7 @@ const fetchClosedCandles = async (symbol, timeframe, limit = 260) => {
 };
 
 const calculateEmaStateFromCandles = (symbol, timeframe, candles) => {
+  candles = candles.filter((candle) => candle.status !== "forming_current" && candle.isForming !== true);
   const latest = candles.at(-1);
   if (!latest || candles.length < 200) {
     return {
