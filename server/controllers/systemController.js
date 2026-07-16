@@ -133,7 +133,7 @@ const health = async (req, res) => {
     symbol: item.symbol, timeframe: item.timeframe, forming_candle: await getFormingCandle(item.symbol, item.timeframe),
   })))).map((item) => ({ ...item, bucket: item.forming_candle?.bucket_start || null, status: item.forming_candle?.status || "unavailable" })) : [];
   const futureViolations = database === "available" ? (await pool.query(
-    `SELECT 'tick' AS type,platform_symbol AS symbol,tick_time AS timestamp FROM live_ticks WHERE tick_time > CURRENT_TIMESTAMP + INTERVAL '60 seconds'
+    `SELECT 'tick' AS type,platform_symbol AS symbol,tick_time AS timestamp FROM live_ticks WHERE utc_storage_valid = TRUE AND tick_time > CURRENT_TIMESTAMP + INTERVAL '60 seconds'
      UNION ALL SELECT 'candle',a.symbol,c.candle_time FROM candles c JOIN assets a ON a.id=c.asset_id WHERE c.candle_time > CURRENT_TIMESTAMP + INTERVAL '60 seconds'`,
   )).rows : [];
   const runtimeHealth = classifyRuntimeHealth({ database, bridge, tickStatus, candleStatus, futureViolationCount: futureViolations.length });

@@ -8,6 +8,7 @@ const utcTimestamp = (value, field, fallback = null) => {
   if (!(timestamp instanceof Date) || Number.isNaN(timestamp.getTime())) {
     const error = new Error(`Invalid ${field} UTC timestamp`);
     error.statusCode = 400;
+    error.details = { field, code: "INVALID_UTC_TIMESTAMP" };
     throw error;
   }
   return timestamp;
@@ -17,6 +18,8 @@ const classifyBridgeRuntime = (row, now = new Date()) => {
   if (!row) return { status: "unavailable", process_count: 0, heartbeat_age_seconds: null };
   const age = Math.max(0, Math.floor((now - new Date(row.heartbeat_at)) / 1000));
   const available = age <= HEARTBEAT_MAX_AGE_SECONDS && row.terminal_connected && row.status === "running";
+  // This is heartbeat evidence for the one authoritative bridge_name, not a
+  // Windows process enumeration. The VPS health script verifies the OS count.
   return { ...row, status: available ? "available" : "stale", process_count: available ? 1 : 0, heartbeat_age_seconds: age };
 };
 
@@ -32,9 +35,9 @@ const recordHeartbeat = async (payload = {}) => {
   const result = await pool.query(
     `INSERT INTO bridge_runtime_state
       (bridge_name,process_id,host_name,started_at,heartbeat_at,broker_offset_seconds,terminal_connected,last_tick_import_at,last_candle_sync_at,status,details,updated_at)
-     VALUES ($1,$2,$3,COALESCE($4,$5),$5,$6,$7,$8,$9,$10,$11::jsonb,CURRENT_TIMESTAMP)
+     VALUES ($1,$2,$3,COALESCE($4::timestamptz,$5::timestamptz),$5::timestamptz,$6,$7,$8::timestamptz,$9::timestamptz,$10,$11::jsonb,CURRENT_TIMESTAMP)
      ON CONFLICT (bridge_name) DO UPDATE SET process_id=EXCLUDED.process_id,host_name=EXCLUDED.host_name,
-       heartbeat_at=EXCLUDED.heartbeat_at,broker_offset_seconds=EXCLUDED.broker_offset_seconds,
+       started_at=EXCLUDED.started_at,heartbeat_at=EXCLUDED.heartbeat_at,broker_offset_seconds=EXCLUDED.broker_offset_seconds,
        terminal_connected=EXCLUDED.terminal_connected,last_tick_import_at=COALESCE(EXCLUDED.last_tick_import_at,bridge_runtime_state.last_tick_import_at),
        last_candle_sync_at=COALESCE(EXCLUDED.last_candle_sync_at,bridge_runtime_state.last_candle_sync_at),status=EXCLUDED.status,
        details=EXCLUDED.details,updated_at=CURRENT_TIMESTAMP RETURNING *`,

@@ -1297,8 +1297,9 @@ CREATE TABLE IF NOT EXISTS public.live_ticks (
     last numeric(24,10),
     display_price numeric(24,10) NOT NULL,
     spread numeric(24,10),
-    tick_time timestamp without time zone NOT NULL,
-    received_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    tick_time timestamp with time zone NOT NULL,
+    received_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    utc_storage_valid boolean DEFAULT false NOT NULL,
     freshness character varying(32) DEFAULT 'live'::character varying NOT NULL,
     status character varying(32) DEFAULT 'live'::character varying NOT NULL,
     source character varying(32) DEFAULT 'mt5_broker'::character varying NOT NULL,
@@ -1320,6 +1321,7 @@ ALTER TABLE ONLY public.live_ticks ALTER COLUMN id SET DEFAULT nextval('public.l
 ALTER TABLE ONLY public.live_ticks ADD CONSTRAINT live_ticks_pkey PRIMARY KEY (id);
 CREATE INDEX IF NOT EXISTS idx_live_ticks_symbol_received ON public.live_ticks USING btree (platform_symbol, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_live_ticks_symbol_tick_time ON public.live_ticks USING btree (platform_symbol, tick_time DESC);
+CREATE INDEX IF NOT EXISTS idx_live_ticks_valid_symbol_received ON public.live_ticks USING btree (platform_symbol, received_at DESC) WHERE ((utc_storage_valid = true) AND ((source)::text = 'mt5_broker'::text));
 
 CREATE TABLE IF NOT EXISTS public.core_ema_states (
     id integer NOT NULL,

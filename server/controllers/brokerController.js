@@ -55,7 +55,7 @@ const getMt5SymbolMap = (_req, res) => {
 const heartbeat = async (req, res) => {
   if (!requireBridgeSecret(req, res)) return;
   try { res.json({ success: true, runtime: await recordHeartbeat(req.body || {}) }); }
-  catch (error) { res.status(error.statusCode || 500).json({ success: false, error: error.message }); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, error: error.message, details: error.details || null }); }
 };
 
 module.exports = {

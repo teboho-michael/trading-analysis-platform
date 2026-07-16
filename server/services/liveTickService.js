@@ -41,16 +41,27 @@ const classifyTick = (tickTime, receivedAt = new Date(), now = new Date()) => {
     return { freshness: "missing", status: STATUS.UNAVAILABLE, is_fresh: false, age_seconds: null, received_age_seconds: null, clock_skew_seconds: null };
   }
   const safeEventAge = Math.max(0, eventAgeSeconds);
-  const safeReceivedAge = Math.max(0, receivedAgeSeconds);
+  const safeReceivedAge = receivedAgeSeconds;
+  if (receivedAgeSeconds < -skewToleranceSeconds()) {
+    return {
+      freshness: "future_receipt",
+      status: STATUS.STALE,
+      is_fresh: false,
+      age_seconds: safeEventAge,
+      received_age_seconds: receivedAgeSeconds,
+      clock_skew_seconds: clockSkewSeconds,
+      warning: "Tick receipt timestamp is in the future beyond tolerance.",
+    };
+  }
   if (clockSkewSeconds > skewToleranceSeconds()) {
     return {
       freshness: "future_timestamp",
       status: STATUS.STALE,
       is_fresh: false,
       age_seconds: safeEventAge,
-      received_age_seconds: safeReceivedAge,
+      received_age_seconds: receivedAgeSeconds,
       clock_skew_seconds: clockSkewSeconds,
-      warning: "MT5 tick timestamp is ahead of receipt time beyond tolerance.",
+      warning: "MT5 tick and receipt timestamps differ beyond tolerance.",
     };
   }
   if (safeReceivedAge > DELAYED_MAX_AGE_SECONDS) {
@@ -89,6 +100,9 @@ const parseBrokerFormattedTimeAsUtc = (value) => {
 
 const normalizeTickTime = (payload, receivedAt = new Date()) => {
   if (payload.clock_offset_seconds !== undefined && payload.tick_time) {
+    if (typeof payload.tick_time !== "string" || !payload.tick_time.endsWith("Z")) {
+      throw new Error("Bridge-normalized MT5 tick_time must be an explicitly UTC ISO timestamp ending in Z");
+    }
     const normalized = new Date(payload.tick_time);
     if (Number.isNaN(normalized.getTime())) throw new Error("Invalid normalized MT5 tick time");
     return { tickTime: normalized, warning: null };
@@ -145,8 +159,8 @@ const importTicks = async (payload) => {
       const state = classifyTick(tick.tick_time, receivedAt, receivedAt);
       const result = await pool.query(
         `INSERT INTO live_ticks
-         (platform_symbol,broker_symbol,bid,ask,last,display_price,spread,tick_time,freshness,status,source,raw_payload)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
+         (platform_symbol,broker_symbol,bid,ask,last,display_price,spread,tick_time,received_at,utc_storage_valid,freshness,status,source,raw_payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,CURRENT_TIMESTAMP,TRUE,$9,$10,$11,$12::jsonb)
          RETURNING *`,
         [tick.platform_symbol, tick.broker_symbol, tick.bid, tick.ask, tick.last, tick.display_price, tick.spread, tick.tick_time, state.freshness, state.status, SOURCE, JSON.stringify(tick.raw_payload)],
       );
@@ -237,7 +251,11 @@ const getLatestTicks = async (requestedSymbols) => {
        WHERE platform_symbol = r.platform_symbol
          AND broker_symbol = r.broker_symbol
          AND source = $3
+         AND utc_storage_valid = TRUE
          AND received_at >= CURRENT_TIMESTAMP - INTERVAL '1 day'
+         AND received_at <= CURRENT_TIMESTAMP + ($5::int * INTERVAL '1 second')
+         AND tick_time <= CURRENT_TIMESTAMP + ($5::int * INTERVAL '1 second')
+         AND ABS(EXTRACT(EPOCH FROM (received_at - tick_time))) <= $5::int
        ORDER BY
          CASE
            WHEN received_at >= CURRENT_TIMESTAMP - ($4::int * INTERVAL '1 second')
