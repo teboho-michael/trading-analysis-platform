@@ -12,7 +12,7 @@ $NpmExe = (Get-Command "npm" -ErrorAction Stop).Source
 function Start-OwnedProcess {
   param([string]$Name, [string]$FilePath, [string]$Arguments, [string]$WorkingDirectory)
   if (-not (Test-Path $WorkingDirectory)) {
-    throw "Working directory not found for $Name: $WorkingDirectory"
+    throw "Working directory not found for ${Name}: $WorkingDirectory"
   }
   $stdoutLog = Join-Path $LogRoot "$Name.out.log"
   $stderrLog = Join-Path $LogRoot "$Name.err.log"
