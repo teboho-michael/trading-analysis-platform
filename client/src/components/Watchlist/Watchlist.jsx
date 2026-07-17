@@ -40,7 +40,7 @@ export default function Watchlist({
             asset?.signal && asset.signal !== "WAIT"
               ? asset.signal
               : asset?.h1Trend;
-          const latestPrice = livePrices?.[symbol]?.price ?? (selectedAsset === symbol && selectedLatestPrice !== undefined ? selectedLatestPrice : asset?.latestPrice);
+          const latestPrice = livePrices?.[symbol]?.price ?? (selectedAsset === symbol && selectedLatestPrice !== undefined ? selectedLatestPrice : null);
           const movement = movements?.[symbol] || "flat";
 
           return (

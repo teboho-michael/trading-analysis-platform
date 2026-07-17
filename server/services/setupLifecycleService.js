@@ -3,7 +3,7 @@ const { getLivePrices } = require("../market/livePriceService");
 const { MT5_SOURCE } = require("./mt5MarketMetadataService");
 
 const OPEN_LIFECYCLE = ["watching", "ready", "triggered", "active", "requires_review"];
-const terminalOutcomes = new Set(["tp1_hit", "tp2_hit", "stopped_out", "invalidated", "expired", "manually_closed"]);
+const terminalOutcomes = new Set(["tp1_hit", "tp2_hit", "won", "lost", "stopped_out", "invalidated", "expired", "cancelled", "manually_closed"]);
 const finite = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
 const validationError = (message) => Object.assign(new Error(message), { statusCode: 400 });
 
@@ -86,7 +86,8 @@ const getMarketData = async (entry) => {
     quote = live.prices.find((item) => item.symbol === entry.symbol) || null;
     quoteError = live.errors?.[0] || null;
   } catch (error) { quoteError = error.details?.[0] || { error: error.message }; }
-  return { candles: result.rows, latestPrice: quote?.price, quote, quoteError };
+  const freshTickPrice = quote?.status === "live" && quote?.freshness === "live" && quote?.is_fresh === true ? quote.price : null;
+  return { candles: result.rows, latestPrice: freshTickPrice, quote, quoteError };
 };
 
 const updateLifecycleForEntry = async (id, options = {}) => {
@@ -101,7 +102,7 @@ const updateLifecycleForEntry = async (id, options = {}) => {
   const reason = marketData.quoteError && !marketData.candles.length && !finite(marketData.latestPrice)
     ? `Insufficient market data for lifecycle update: ${marketData.quoteError.message || marketData.quoteError.error || marketData.quoteError.code}` : buildLifecycleReason(entry, evaluation);
   const latestCandle = marketData.candles?.at(-1);
-  const latestPrice = finite(marketData.latestPrice) ? Number(marketData.latestPrice) : (latestCandle ? Number(latestCandle.close) : null);
+  const latestPrice = finite(marketData.latestPrice) ? Number(marketData.latestPrice) : null;
   const values = [evaluation.outcome || entry.outcome, evaluation.lifecycle_status || entry.lifecycle_status, latestPrice, latestCandle?.candle_time || entry.lifecycle_last_candle_time, reason, Boolean(evaluation.requires_review), evaluation.review_reason || entry.review_reason, evaluation.triggered_at || entry.triggered_at, evaluation.final_r_result ?? entry.final_r_result, evaluation.closed_at || entry.closed_at, id];
   const updated = await pool.query(`UPDATE setup_journal SET outcome=$1,lifecycle_status=$2,lifecycle_last_checked_at=CURRENT_TIMESTAMP,
     lifecycle_last_price=$3,lifecycle_last_candle_time=$4,lifecycle_reason=$5,lifecycle_update_count=lifecycle_update_count+1,

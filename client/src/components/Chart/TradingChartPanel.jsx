@@ -22,7 +22,7 @@ export default function TradingChartPanel({
   const [collecting, setCollecting] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
-  const latestPrice = liveQuote?.display_price ?? liveQuote?.price ?? candles.at(-1)?.close;
+  const latestPrice = liveQuote?.display_price ?? liveQuote?.price ?? null;
   const isForming = candles.at(-1)?.isForming === true;
   const activeZone =
     ["active", "tested"].includes(selectedAssetData?.activeZone?.status) &&

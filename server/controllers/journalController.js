@@ -1,6 +1,7 @@
 const journal = require("../services/setupJournalService");
 const lifecycle = require("../services/setupLifecycleService");
 const performance = require("../services/performanceService");
+const paper = require("../services/paperTradeService");
 const sendError = (res, error) => res.status(error.statusCode || (error.code === "23503" ? 400 : 500)).json({ success: false, error: error.message });
 const list = async (req, res) => { try { res.json({ success: true, entries: await journal.listJournalEntries(req.query) }); } catch (error) { sendError(res, error); } };
 const get = async (req, res) => { try { const entry = await journal.getJournalEntry(req.params.id); if (!entry) return res.status(404).json({ success: false, error: "Journal entry not found" }); res.json({ success: true, entry }); } catch (error) { sendError(res, error); } };
@@ -13,4 +14,8 @@ const getLifecycle = async (req, res) => { try { const entry = await journal.get
 const updateLifecycle = async (req, res) => { try { const result = await lifecycle.updateLifecycleForEntry(req.params.id); if (!result) return res.status(404).json({ success: false, error: "Journal entry not found" }); res.json({ success: true, ...result }); } catch (error) { sendError(res, error); } };
 const updateOpenLifecycles = async (req, res) => { try { res.json({ success: true, ...await lifecycle.updateLifecycleForOpenEntries(req.body || {}) }); } catch (error) { sendError(res, error); } };
 const getPerformance = async (req, res) => { try { res.json({ success: true, ...await performance.getPerformance(req.query) }); } catch (error) { sendError(res, error); } };
-module.exports = { list, get, create, fromSignal, updateOutcome, stats, open, getLifecycle, updateLifecycle, updateOpenLifecycles, getPerformance };
+const activatePaper = async (req, res) => { try { const result = await paper.activatePaperTrade(req.body?.symbol || req.params.symbol); res.status(result.created ? 201 : 200).json({ success: true, paper: true, created: result.created, entry: result.entry }); } catch (error) { sendError(res, error); } };
+const openPaper = async (req, res) => { try { res.json({ success: true, entries: await paper.openPaperTrades(req.query) }); } catch (error) { sendError(res, error); } };
+const updatePaper = async (req, res) => { try { res.json({ success: true, ...await paper.updateOpenPaperTrades(req.body || req.query || {}) }); } catch (error) { sendError(res, error); } };
+const paperStats = async (req, res) => { try { res.json({ success: true, stats: await paper.getPaperStats(req.query) }); } catch (error) { sendError(res, error); } };
+module.exports = { list, get, create, fromSignal, updateOutcome, stats, open, getLifecycle, updateLifecycle, updateOpenLifecycles, getPerformance, activatePaper, openPaper, updatePaper, paperStats };

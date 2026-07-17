@@ -1,6 +1,6 @@
 param(
-  [string]$RepoRoot = "C:\TradingAnalysisPlatform\repo",
-  [string]$LogRoot = "C:\TradingAnalysisPlatform\logs",
+  [string]$RepoRoot = "C:\trading-analysis-platform",
+  [string]$LogRoot = "C:\trading-analysis-platform\logs",
   [string]$CloudflaredConfig = ""
 )
 

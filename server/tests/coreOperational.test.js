@@ -11,6 +11,10 @@ const { buildFormingCandle } = require("../services/formingCandleService");
 const { classifyBridgeRuntime } = require("../services/bridgeRuntimeService");
 const { buildAlertDedupeKey } = require("../services/alertService");
 const { calculateRiskLevels } = require("../analysis/riskEngine");
+const { evaluatePaperTradeFromTick } = require("../services/paperTradeService");
+const { evaluateCoreHealthAcceptance } = require("../services/coreHealthAcceptanceService");
+const { classifyGap, missingBucketsBetween } = require("../services/candleGapService");
+const { insertCandle } = require("../market/candleCollector");
 
 const candles = (count, start = 100) => Array.from({ length: count }, (_, index) => ({
   open: start + index,
@@ -310,4 +314,98 @@ test("alert dedupe key is stable for identical open alerts and distinct after me
   const laterDistinct = buildAlertDedupeKey({ symbol: "XAUUSD", alertType: "price_entering_zone", relatedZoneId: 43, metadata: { state: "inside" } });
   assert.equal(first, duplicate);
   assert.notEqual(first, laterDistinct);
+});
+
+test("paper BUY lifecycle uses fresh ticks and reaches partial then won", () => {
+  const entry = { direction: "BUY", entry: 100, stop_loss: 95, tp1: 110, tp2: 120, actual_entry: 100, lifecycle_last_price: 100, lifecycle_status: "active", risk_reward_tp1: 2, risk_reward_tp2: 3 };
+  const fresh = { status: "live", freshness: "live", is_fresh: true, display_price: 111, tick_time: "2026-01-01T00:00:01Z", received_at: "2026-01-01T00:00:02Z" };
+  const partial = evaluatePaperTradeFromTick(entry, fresh);
+  assert.equal(partial.lifecycle_status, "partial_target");
+  const won = evaluatePaperTradeFromTick({ ...entry, lifecycle_status: "partial_target", lifecycle_last_price: 111 }, { ...fresh, display_price: 121 });
+  assert.equal(won.lifecycle_status, "won");
+  assert.equal(won.final_r_result, 3);
+});
+
+test("paper SELL lifecycle handles target and stop directionally", () => {
+  const entry = { direction: "SELL", entry: 100, stop_loss: 105, tp1: 90, tp2: 80, actual_entry: 100, lifecycle_last_price: 100, lifecycle_status: "active", risk_reward_tp1: 2, risk_reward_tp2: 3 };
+  const won = evaluatePaperTradeFromTick(entry, { status: "live", freshness: "live", is_fresh: true, display_price: 79, tick_time: "2026-01-01T00:00:01Z", received_at: "2026-01-01T00:00:02Z" });
+  assert.equal(won.lifecycle_status, "won");
+  const lost = evaluatePaperTradeFromTick(entry, { status: "live", freshness: "live", is_fresh: true, display_price: 106, tick_time: "2026-01-01T00:00:01Z", received_at: "2026-01-01T00:00:02Z" });
+  assert.equal(lost.lifecycle_status, "lost");
+});
+
+test("paper lifecycle refuses stale prices", () => {
+  const result = evaluatePaperTradeFromTick({ direction: "BUY", entry: 100, stop_loss: 95, tp1: 110, tp2: 120 }, { status: "stale", freshness: "stale", is_fresh: false, display_price: 120 });
+  assert.equal(result.changed, false);
+  assert.match(result.reason, /Fresh XM MT5 tick/);
+});
+
+const healthyPayload = () => ({
+  application_status: "available",
+  database_status: "available",
+  mt5_terminal_status: "available",
+  continuous_bridge_status: "available",
+  continuous_bridge_process_count: 1,
+  continuous_bridge_heartbeat: "2026-01-01T00:00:00.000Z",
+  mt5_tick_status: "available",
+  mt5_candles: "available",
+  degradation_reason_codes: [],
+  future_timestamp_violations: [],
+  stale_warnings: [],
+  latest_tick_by_symbol: ["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"].map((symbol) => ({ symbol, status: "live", is_fresh: true })),
+});
+
+test("strict core health acceptance fails degraded runtime", () => {
+  const result = evaluateCoreHealthAcceptance({ ...healthyPayload(), application_status: "degraded", degradation_reason_codes: ["MT5_TICKS_NOT_FRESH"] });
+  assert.equal(result.passed, false);
+  assert.ok(result.failures.some((failure) => failure.name === "application_status"));
+});
+
+test("strict core health acceptance passes available runtime", () => {
+  const result = evaluateCoreHealthAcceptance(healthyPayload());
+  assert.equal(result.passed, true);
+  assert.equal(result.failures.length, 0);
+});
+
+test("optional non-core degradation does not fail strict core health acceptance", () => {
+  const result = evaluateCoreHealthAcceptance({ ...healthyPayload(), optional_warnings: [{ name: "research-lab", detail: "optional historical module unavailable" }] });
+  assert.equal(result.passed, true);
+  assert.equal(result.warnings.length, 1);
+});
+
+test("weekend USDJPY H4 gaps classify as expected market closure", () => {
+  const result = classifyGap({ symbol: "USDJPY", timeframe: "H4", previous_time: "2026-05-08T20:00:00.000Z", candle_time: "2026-05-11T00:00:00.000Z" });
+  assert.equal(result.classification, "expected_market_closure");
+  assert.equal(result.missing_candle_times.length, 12);
+  assert.ok(result.missing_candle_times.every((time) => time.includes("2026-05-09") || time.includes("2026-05-10")));
+});
+
+test("repairable import gaps classify when MT5 contains missing buckets", () => {
+  const result = classifyGap({ symbol: "USDJPY", timeframe: "H4", previous_time: "2026-05-11T00:00:00.000Z", candle_time: "2026-05-11T12:00:00.000Z", mt5AvailableMissingTimes: ["2026-05-11T04:00:00.000Z"] });
+  assert.equal(result.classification, "repairable_import_gap");
+  assert.deepEqual(result.repairable_candle_times, ["2026-05-11T04:00:00.000Z"]);
+});
+
+test("unresolved gap classification requires VPS MT5 history check", () => {
+  const result = classifyGap({ symbol: "USDJPY", timeframe: "H4", previous_time: "2026-05-11T00:00:00.000Z", candle_time: "2026-05-11T12:00:00.000Z" });
+  assert.equal(result.classification, "unresolved");
+});
+
+test("gap classifier does not create synthetic candles or overwrite stored candles", () => {
+  const missing = missingBucketsBetween("2026-05-11T00:00:00.000Z", "2026-05-11T12:00:00.000Z", "H4");
+  assert.deepEqual(missing.map((date) => date.toISOString()), ["2026-05-11T04:00:00.000Z", "2026-05-11T08:00:00.000Z"]);
+});
+
+test("candle insert preserves existing same-source MT5 closed candles on conflict", async () => {
+  let sql = "";
+  const fakeDb = {
+    query: async (text) => {
+      sql = text;
+      return { rows: [{ id: 1, inserted: false }] };
+    },
+  };
+  await insertCandle(fakeDb, 1, "H4", { open: 1, high: 2, low: 1, close: 2, volume: 10, candle_time: "2026-05-11T04:00:00.000Z" }, { source: "mt5_broker", brokerSymbol: "USDJPY" });
+  assert.match(sql, /ON CONFLICT \(asset_id, timeframe, candle_time\)/);
+  assert.match(sql, /WHERE candles\.source IS DISTINCT FROM \$9/);
+  assert.match(sql, /NOT EXISTS \(SELECT 1 FROM upsert\)/);
 });

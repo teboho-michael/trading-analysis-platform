@@ -1,3 +1,15 @@
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 :root {
   --bg: #080b11;
   --panel: #0f141e;
@@ -422,6 +434,7 @@
 .setup-card.direction-buy { border-color: #216b5a; }
 .setup-card.direction-sell { border-color: #74333d; }
 .journal-add-button { margin-top: 10px; width: 100%; border: 1px solid #35577d; background: #13243a; color: #d8eaff; }
+.journal-add-button.secondary { background: #101722; color: #abc4ff; }
 .journal-add-button:disabled { cursor: not-allowed; opacity: .45; }
 .journal-success { margin: 7px 0 0; color: #65d6aa; font-size: 10px; }
 .journal-workspace { min-width: 0; }
@@ -491,6 +504,8 @@
 .next-action strong { color: #dce5f2; font-size: 10px; font-weight: 600; line-height: 1.45; }
 .decision-warning { margin: 7px 0 0; color: var(--negative); font-size: 9px; }
 .levels-card { background: #0b121c; }
+.paper-card { border-color: #4c5a33; background: #11160f; }
+.paper-label { color: var(--warning) !important; letter-spacing: .04em; }
 .level-grid .analysis-row { min-height: 27px; }
 .level-grid .analysis-row strong { font-size: 11px; }
 .zone-level { color: #abc4ff !important; }
@@ -683,31 +698,207 @@
 }
 
 @media (max-width: 620px) {
-  .data-source,
-  .live-controls span:not(.connection-state) {
-    display: none;
-  }
+  .app-shell { overflow-x: hidden; }
 
-  .trading-workspace {
-    display: block;
-  }
-
-  .watchlist-rows {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .chart-header {
+  .platform-header {
+    height: auto;
+    min-height: 54px;
+    padding: 8px 10px;
     align-items: flex-start;
     flex-direction: column;
+    gap: 7px;
   }
 
-  .toolbar {
+  .platform-header > div:first-child {
     width: 100%;
     justify-content: space-between;
   }
 
+  .platform-header h1 { font-size: 13px; }
+
+  .live-controls {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    font-size: 9px;
+  }
+
+  .live-controls span,
+  .live-controls button {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .live-controls span:nth-of-type(n+5),
+  .live-controls button:nth-of-type(n+3) {
+    display: none;
+  }
+
+  .trading-workspace {
+    display: flex;
+    min-height: calc(100vh - 92px);
+    flex-direction: column;
+    gap: 1px;
+    overflow: visible;
+  }
+
+  .watchlist {
+    order: 1;
+    width: 100%;
+    overflow: visible;
+  }
+
+  .panel-heading {
+    min-height: 45px;
+    padding: 8px 10px;
+  }
+
+  .watchlist-rows {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    padding: 6px;
+  }
+
+  .watchlist-row {
+    min-height: 78px;
+    padding: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .watchlist-market-data { align-items: flex-start; }
+
+  .watchlist-identity small,
+  .watchlist-market-data small {
+    max-width: 100%;
+    white-space: normal;
+  }
+
   .chart-section {
-    height: 600px;
+    order: 2;
+    width: 100%;
+    height: auto;
+    min-height: 570px;
+    grid-template-rows: auto auto auto minmax(360px, 1fr);
+  }
+
+  .chart-header {
+    min-height: auto;
+    padding: 9px 10px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .toolbar {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  .toolbar button,
+  .chart-controls select {
+    width: 100%;
+    min-height: 36px;
+  }
+
+  .chart-metadata {
+    min-height: 0;
+    padding: 7px 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .chart-context {
+    min-height: 0;
+    padding: 8px 10px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    overflow-x: hidden;
+    white-space: normal;
+  }
+
+  .chart-context > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .latest-quote strong { font-size: 13px; }
+
+  .chart-canvas,
+  .chart-box,
+  .chart-state {
+    min-height: 360px;
+  }
+
+  .analysis-panel {
+    order: 3;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .decision-market {
+    min-height: 58px;
+    padding: 10px;
+  }
+
+  .decision-card {
+    margin: 6px 7px 0;
+    padding: 10px;
+  }
+
+  .setup-summary,
+  .bias-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .analysis-row { gap: 8px; }
+
+  .analysis-row span,
+  .analysis-row strong,
+  .next-action strong,
+  .decision-empty {
+    overflow-wrap: anywhere;
+  }
+
+  .lower-panel {
+    order: 4;
+    width: 100%;
+    height: auto;
+    min-height: 42px;
+  }
+
+  .lower-content { max-height: 270px; }
+
+  .system-grid,
+  .journal-stats,
+  .performance-summary,
+  .research-summary,
+  .research-intelligence {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 360px) {
+  .watchlist-row {
+    min-height: 84px;
+    padding: 7px;
+  }
+
+  .chart-context,
+  .chart-metadata {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .setup-summary,
+  .bias-strip {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

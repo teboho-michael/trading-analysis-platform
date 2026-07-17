@@ -1,3 +1,7 @@
+param(
+  [string]$RepoRoot = "C:\trading-analysis-platform"
+)
+
 $ErrorActionPreference = "Stop"
 
 $tasks = Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" -ErrorAction SilentlyContinue

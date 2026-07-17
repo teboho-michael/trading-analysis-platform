@@ -106,6 +106,7 @@ const importCandles = async (payload) => {
       .filter((date) => !Number.isNaN(date.getTime()))
       .sort((a, b) => a - b);
 
+    const success = saved.length > 0 && rejected.length === 0;
     await client.query(
       `
         INSERT INTO mt5_bridge_runs
@@ -123,7 +124,7 @@ const importCandles = async (payload) => {
           earliest_candle_time,
           latest_candle_time
         )
-        VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP,TRUE,$5,$6,$7,$8,$9,$10)
+        VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP,$11,$5,$6,$7,$8,$9,$10)
       `,
       [
         symbol,
@@ -136,6 +137,7 @@ const importCandles = async (payload) => {
         rejected.length,
         sortedTimes[0] || null,
         sortedTimes.at(-1) || null,
+        success,
       ],
     );
 
@@ -167,6 +169,7 @@ const importCandles = async (payload) => {
     latest: sortedTimes.at(-1)?.toISOString() || null,
     source: SOURCE,
     rejected,
+    success: saved.length > 0 && rejected.length === 0,
     analysis_refresh: analysisRefresh,
   };
 };

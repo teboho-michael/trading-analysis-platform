@@ -41,30 +41,43 @@ const insertCandle = async (db, assetId, timeframe, candle, options = {}) => {
   const brokerSymbol = options.brokerSymbol || null;
   const saved = await db.query(
     `
-        INSERT INTO candles
-        (
-            asset_id,
-            timeframe,
-            open,
-            high,
-            low,
-            close,
-            volume,
-            candle_time,
-            source,
-            broker_symbol
+        WITH upsert AS (
+          INSERT INTO candles
+          (
+              asset_id,
+              timeframe,
+              open,
+              high,
+              low,
+              close,
+              volume,
+              candle_time,
+              source,
+              broker_symbol
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT (asset_id, timeframe, candle_time)
+          DO UPDATE SET
+              open = EXCLUDED.open,
+              high = EXCLUDED.high,
+              low = EXCLUDED.low,
+              close = EXCLUDED.close,
+              volume = EXCLUDED.volume,
+              source = EXCLUDED.source,
+              broker_symbol = EXCLUDED.broker_symbol
+          WHERE candles.source IS DISTINCT FROM $9
+             OR candles.broker_symbol IS DISTINCT FROM $10
+          RETURNING *, (xmax = 0) AS inserted
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        ON CONFLICT (asset_id, timeframe, candle_time)
-        DO UPDATE SET
-            open = EXCLUDED.open,
-            high = EXCLUDED.high,
-            low = EXCLUDED.low,
-            close = EXCLUDED.close,
-            volume = EXCLUDED.volume,
-            source = EXCLUDED.source,
-            broker_symbol = EXCLUDED.broker_symbol
-        RETURNING *, (xmax = 0) AS inserted
+        SELECT * FROM upsert
+        UNION ALL
+        SELECT candles.*, FALSE AS inserted
+        FROM candles
+        WHERE candles.asset_id=$1
+          AND candles.timeframe=$2
+          AND candles.candle_time=$8
+          AND NOT EXISTS (SELECT 1 FROM upsert)
+        LIMIT 1
         `,
     [
       assetId,

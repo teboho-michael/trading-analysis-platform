@@ -2,11 +2,11 @@ const pool = require("../db/connection");
 const { getInstrument } = require("../market/instrumentRegistry");
 
 const ENTRY_TYPES = new Set(["setup", "watch", "observation", "provider_limited"]);
-const OUTCOMES = new Set(["pending", "watching", "triggered", "tp1_hit", "tp2_hit", "stopped_out", "invalidated", "expired", "manually_closed", "requires_review", "ambiguous", "converted_to_setup", "reviewed", "ignored"]);
+const OUTCOMES = new Set(["pending", "watching", "triggered", "active", "partial_target", "won", "lost", "tp1_hit", "tp2_hit", "stopped_out", "invalidated", "expired", "cancelled", "manually_closed", "requires_review", "ambiguous", "converted_to_setup", "reviewed", "ignored"]);
 const REVIEW_STATUSES = new Set(["unreviewed", "reviewed", "ignored"]);
-const LIFECYCLE_STATUSES = new Set(["watching", "ready", "triggered", "active", "completed", "invalidated", "expired", "manually_closed", "requires_review"]);
-const COMPLETED_SETUP = ["tp1_hit", "tp2_hit", "stopped_out", "invalidated", "manually_closed"];
-const COLUMNS = ["signal_id", "entry_type", "dedupe_key", "symbol", "strategy_name", "strategy_version", "timeframe", "direction", "setup_stage", "quality_score", "status", "outcome", "d1_bias", "h4_bias", "h1_trend", "ema_confirmation", "zone_type", "zone_timeframe", "zone_high", "zone_low", "zone_status", "distance_from_zone", "entry", "stop_loss", "tp1", "tp2", "risk_reward_tp1", "risk_reward_tp2", "triggered_at", "closed_at", "max_favourable_move", "max_adverse_move", "final_r_result", "review_status", "reviewer_notes", "notes", "screenshot_url", "tags", "data_source", "provider_symbol", "price_scale_mode", "source_mode", "broker_symbol", "broker_server", "account_currency", "execution_mode", "broker_ticket", "actual_entry", "actual_stop_loss", "actual_take_profit", "actual_close_price", "actual_profit_loss", "actual_profit_loss_currency", "lifecycle_status", "lifecycle_update_count", "requires_review", "review_reason"];
+const LIFECYCLE_STATUSES = new Set(["pending", "watching", "ready", "triggered", "active", "partial_target", "won", "lost", "completed", "invalidated", "expired", "cancelled", "manually_closed", "requires_review"]);
+const COMPLETED_SETUP = ["tp1_hit", "tp2_hit", "won", "lost", "stopped_out", "invalidated", "expired", "cancelled", "manually_closed"];
+const COLUMNS = ["signal_id", "entry_type", "dedupe_key", "symbol", "strategy_name", "strategy_version", "timeframe", "direction", "setup_stage", "quality_score", "status", "outcome", "d1_bias", "h4_bias", "h1_trend", "ema_confirmation", "zone_type", "zone_timeframe", "zone_high", "zone_low", "zone_status", "distance_from_zone", "entry", "stop_loss", "tp1", "tp2", "risk_reward_tp1", "risk_reward_tp2", "triggered_at", "closed_at", "max_favourable_move", "max_adverse_move", "final_r_result", "review_status", "reviewer_notes", "notes", "screenshot_url", "tags", "data_source", "provider_symbol", "price_scale_mode", "source_mode", "broker_symbol", "broker_server", "account_currency", "execution_mode", "broker_ticket", "actual_entry", "actual_stop_loss", "actual_take_profit", "actual_close_price", "actual_profit_loss", "actual_profit_loss_currency", "lifecycle_status", "lifecycle_update_count", "requires_review", "review_reason", "paper_demo_activated_at", "paper_demo_closed_at", "paper_demo_last_tick_time", "paper_demo_last_received_at", "lifecycle_last_price", "lifecycle_last_checked_at"];
 
 const validationError = (message) => Object.assign(new Error(message), { statusCode: 400 });
 const finite = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
@@ -99,7 +99,7 @@ const listJournalEntries = async (filters) => { const query = buildFilters(filte
 const getJournalEntry = async (id) => { if (!Number.isInteger(Number(id)) || Number(id) <= 0) throw validationError("id must be a positive integer"); const result = await pool.query("SELECT * FROM setup_journal WHERE id=$1", [id]); return result.rows[0] || null; };
 
 const updateJournalOutcome = async (id, update) => {
-  const allowed = ["outcome", "status", "lifecycle_status", "triggered_at", "closed_at", "max_favourable_move", "max_adverse_move", "final_r_result", "reviewer_notes", "review_status", "requires_review", "review_reason", "notes", "actual_entry", "actual_stop_loss", "actual_take_profit", "actual_close_price", "actual_profit_loss", "actual_profit_loss_currency"];
+  const allowed = ["outcome", "status", "lifecycle_status", "triggered_at", "closed_at", "max_favourable_move", "max_adverse_move", "final_r_result", "reviewer_notes", "review_status", "requires_review", "review_reason", "notes", "actual_entry", "actual_stop_loss", "actual_take_profit", "actual_close_price", "actual_profit_loss", "actual_profit_loss_currency", "paper_demo_activated_at", "paper_demo_closed_at", "paper_demo_last_tick_time", "paper_demo_last_received_at", "lifecycle_last_price", "lifecycle_last_checked_at"];
   const keys = allowed.filter((key) => Object.prototype.hasOwnProperty.call(update, key));
   if (!keys.length) throw validationError("no supported outcome fields supplied");
   if (update.outcome && !OUTCOMES.has(String(update.outcome).toLowerCase())) throw validationError("invalid outcome");
@@ -110,7 +110,7 @@ const updateJournalOutcome = async (id, update) => {
   const current = await getJournalEntry(id);
   if (!current) return null;
   const nextOutcome = update.outcome ? String(update.outcome).toLowerCase() : null;
-  const setupOnly = new Set(["triggered", "tp1_hit", "tp2_hit", "stopped_out", "manually_closed"]);
+  const setupOnly = new Set(["triggered", "active", "partial_target", "won", "lost", "tp1_hit", "tp2_hit", "stopped_out", "expired", "cancelled", "manually_closed"]);
   const nonSetupOnly = new Set(["converted_to_setup", "reviewed", "ignored"]);
   if (current.entry_type === "setup" && nonSetupOnly.has(nextOutcome)) throw validationError("outcome is not valid for setup entries");
   if (current.entry_type !== "setup" && setupOnly.has(nextOutcome)) throw validationError("trade outcomes are only valid for setup entries");

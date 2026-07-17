@@ -278,6 +278,20 @@ def post_ticks(payload: dict) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def accepted_summary(result: dict, label: str) -> dict:
+    summary = result.get("import", result)
+    received = int(summary.get("received_count") or 0)
+    inserted = int(summary.get("inserted_count") or 0)
+    updated = int(summary.get("updated_count") or 0)
+    rejected = int(summary.get("rejected_count") or 0)
+    if received <= 0 or rejected > 0 or (inserted + updated) <= 0:
+        raise RuntimeError(
+            f"{label}: backend did not accept a complete import "
+            f"(received={received} inserted={inserted} updated={updated} rejected={rejected})"
+        )
+    return summary
+
+
 def api_json(path: str) -> dict:
     with request.urlopen(f"{PLATFORM_API_BASE_URL.rstrip('/')}{path}", timeout=15) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -345,7 +359,7 @@ def sync_symbol_timeframe(platform_symbol: str, timeframe: str, state: dict, bro
         "started_at": started_at,
         "candles": candles,
     }))
-    summary = result.get("import", result)
+    summary = accepted_summary(result, label)
     key = f"{platform_symbol}:{timeframe}"
     state[key] = {
         "platform_symbol": platform_symbol,
@@ -383,7 +397,7 @@ def sync_ticks(symbols: list[str], state: dict) -> bool:
     if ticks:
         state["broker_offset_seconds"] = ticks[0]["clock_offset_seconds"]
         result = with_retries("live ticks import", lambda: post_ticks({"ticks": ticks, "started_at": utc_now()}))
-        summary = result.get("import", result)
+        summary = accepted_summary(result, "live ticks import")
         state["latest_ticks"] = {
             "last_success": utc_now(),
             "received_count": summary.get("received_count"),
@@ -441,7 +455,8 @@ def run_continuous() -> int:
                 try:
                     ticks, offset, failed = collect_and_normalize_ticks(DEFAULT_SYMBOLS)
                     if ticks:
-                        with_retries("live ticks import", lambda: post_ticks({"ticks": ticks, "started_at": utc_now()})); tick_success = True
+                        tick_summary = accepted_summary(with_retries("live ticks import", lambda: post_ticks({"ticks": ticks, "started_at": utc_now()})), "live ticks import")
+                        tick_success = int(tick_summary.get("inserted_count") or 0) + int(tick_summary.get("updated_count") or 0) == len(ticks)
                         state["broker_offset_seconds"] = offset
                     if failed: print(f"tick failures isolated: {', '.join(failed)}", flush=True)
                 except Exception as exc: print(f"tick cycle failed: {exc}", flush=True)

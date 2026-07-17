@@ -51,7 +51,7 @@ function App() {
   const activeLivePrices = liveMode ? live.prices : {};
   const selectedLiveQuote = activeLivePrices[selectedAsset];
   const visibleCandles = useFormingCandles(selectedCandles, selectedLiveQuote, selectedAsset, selectedTimeframe, liveMode);
-  const latestPrice = selectedLiveQuote?.display_price ?? selectedLiveQuote?.price ?? visibleCandles.at(-1)?.close;
+  const latestPrice = selectedLiveQuote?.display_price ?? selectedLiveQuote?.price ?? null;
   const selectedFreshness = systemHealth?.latest_mt5_candles?.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
   const selectedStaleWarning = systemHealth?.stale_data_warnings?.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
 

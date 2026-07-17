@@ -46,6 +46,7 @@ const getAlignmentMessage = (metadata) => {
 
 function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe = "H1", candleMetadata, systemHealth, onJournalCreated }) {
   const [journalState, setJournalState] = useState({ busy: false, message: "", error: false, entry: null });
+  const [paperState, setPaperState] = useState({ busy: false, message: "", error: false, entry: null });
 
   const instrument = getInstrument(asset.symbol);
   const metadata = asset.instrument || {};
@@ -70,6 +71,7 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
   const zoneAlignment = checklist.find((item) => item.key === "activeZone");
   const proximity = checklist.find((item) => item.key === "proximity");
   const canJournal = Boolean(levels?.entry && levels?.stopLoss && levels?.takeProfit1 && ["BUY", "SELL"].includes(direction));
+  const canPaperActivate = canJournal && liveQuote?.status === "live" && liveQuote?.is_fresh === true;
   const insufficientData = [asset.dailyBias, asset.h4Bias, asset.h1Trend].some((value) => String(value).toLowerCase().includes("insufficient"));
   const providerLimited = !canJournal && insufficientData && metadata.sourceMode !== "mt5_broker";
   const entryType = canJournal ? "setup" : providerLimited ? "provider_limited" : (stage === "WATCH" || activeZone) ? "watch" : "observation";
@@ -122,12 +124,43 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
       onJournalCreated?.();
     } catch (requestError) { setJournalState((current) => ({ ...current, busy: false, error: true, message: requestError.response?.data?.error || "Could not update lifecycle." })); }
   };
+  const activatePaperDemo = async () => {
+    setPaperState({ busy: true, message: "", error: false, entry: null });
+    try {
+      const response = await api.post("/journal/paper/activate", { symbol: asset.symbol });
+      setPaperState({
+        busy: false,
+        message: response.data.created === false ? "Paper demo already active." : "Paper demo activated from fresh XM tick.",
+        error: false,
+        entry: response.data.entry,
+      });
+      onJournalCreated?.();
+    } catch (requestError) {
+      setPaperState({ busy: false, message: requestError.response?.data?.error || "Could not activate paper demo.", error: true, entry: null });
+    }
+  };
+  const updatePaperDemo = async () => {
+    setPaperState((current) => ({ ...current, busy: true, message: "" }));
+    try {
+      const response = await api.post("/journal/paper/update", { symbol: asset.symbol });
+      const latestPaperEntry = response.data.results?.[0]?.entry || paperState.entry;
+      setPaperState({
+        busy: false,
+        message: `${response.data.updated} paper demo update(s), ${response.data.skipped} unchanged.`,
+        error: false,
+        entry: latestPaperEntry,
+      });
+      onJournalCreated?.();
+    } catch (requestError) {
+      setPaperState((current) => ({ ...current, busy: false, message: requestError.response?.data?.error || "Could not update paper demo.", error: true }));
+    }
+  };
 
   return (
     <aside className="analysis-panel panel-shell decision-panel" aria-label="Trading decision analysis">
       <header className="decision-market">
         <div><span className="eyebrow">Selected market</span><h2>{asset.symbol}</h2><small>{instrument.name}</small></div>
-        <div className="decision-market-price"><span>Latest price</span><strong>{formatValue(liveQuote?.price ?? latestPrice)}</strong></div>
+        <div className="decision-market-price"><span>Live XM price</span><strong>{formatValue(liveQuote?.price ?? latestPrice)}</strong><small>{liveQuote?.status || "unavailable"}</small></div>
       </header>
 
       <section className={`decision-card setup-card direction-${classToken(direction)}`}>
@@ -157,6 +190,19 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
         </div>
         {!levels && <p className="decision-empty">No valid entry yet.</p>}
         {asset.risk && <p className="level-note">Risk {asset.risk.riskPercent}% · {formatValue(asset.risk.positionSizeUnits, 6)} units</p>}
+      </section>
+
+      <section className="decision-card paper-card">
+        <h3>Paper Demo Validation</h3>
+        <AnalysisRow label="Mode" value="PAPER / DEMO ONLY" valueClass="paper-label" />
+        <AnalysisRow label="Fresh tick" value={canPaperActivate ? "Available" : liveQuote?.status || "Unavailable"} />
+        <AnalysisRow label="State" value={paperState.entry?.lifecycle_status || "Not active"} />
+        <button type="button" className="journal-add-button" disabled={paperState.busy || !canPaperActivate} onClick={activatePaperDemo}>
+          {paperState.busy ? "Working..." : "Activate Paper Demo"}
+        </button>
+        <button type="button" className="journal-add-button secondary" disabled={paperState.busy} onClick={updatePaperDemo}>Update Paper Demo</button>
+        {!canPaperActivate && <p className="decision-empty">Paper activation waits for a valid BUY/SELL setup and a fresh XM MT5 tick.</p>}
+        {paperState.message && <p className={paperState.error ? "decision-warning" : "journal-success"}>{paperState.message}</p>}
       </section>
 
       <section className="decision-card bias-card">
