@@ -17,6 +17,7 @@ from pathlib import Path
 from statistics import median
 import sys
 import time
+import traceback
 from urllib import error, request
 
 import MetaTrader5 as mt5
@@ -537,6 +538,6 @@ def run() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(run())
-    except Exception as exc:
-        print(exc, flush=True)
+    except Exception:
+        traceback.print_exc()
         sys.exit(1)
