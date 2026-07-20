@@ -28,7 +28,10 @@ Start-Transcript -Path $TranscriptPath -Force | Out-Null
 Push-Location $RepoRoot
 try {
   $top = (& git rev-parse --show-toplevel).Trim()
-  if ($top -ne $RepoRoot) { throw "Unexpected git root: $top" }
+  $pathSeparators = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+  $normalizedTop = [System.IO.Path]::GetFullPath($top).TrimEnd($pathSeparators)
+  $normalizedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd($pathSeparators)
+  if (-not [System.StringComparer]::OrdinalIgnoreCase.Equals($normalizedTop, $normalizedRepoRoot)) { throw "Unexpected git root: $top" }
   if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME -ne $ProductionBranch) { throw "Ref $env:GITHUB_REF_NAME is not approved production branch $ProductionBranch" }
   Invoke-Step "Fetch approved branch" { & git fetch --prune origin }
   if (-not $CommitSha) { $CommitSha = (& git rev-parse "origin/$ProductionBranch").Trim() }

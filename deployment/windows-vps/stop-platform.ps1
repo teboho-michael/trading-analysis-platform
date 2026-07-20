@@ -18,6 +18,16 @@ foreach ($process in $owned) {
   Stop-Process -Id $process.ProcessId -Force
 }
 
-if (-not $owned -and -not $tasks) {
+$bridgeProcesses = @(Get-CimInstance Win32_Process | Where-Object {
+  ($_.Name -eq "python.exe" -or $_.Name -eq "pythonw.exe") -and
+  $_.CommandLine -like "*mt5_candle_bridge.py*" -and
+  $_.CommandLine -like "*--run-continuous*"
+})
+foreach ($process in $bridgeProcesses) {
+  Write-Host "Stopping platform MT5 bridge Python process $($process.ProcessId)"
+  Stop-Process -Id $process.ProcessId -Force
+}
+
+if (-not $owned -and -not $tasks -and @($bridgeProcesses).Count -eq 0) {
   Write-Host "No platform-owned processes or scheduled tasks found"
 }

@@ -21,44 +21,107 @@ function Report {
   Write-Host "$Level $Name - $Detail"
 }
 
-function Assert-Equal {
-  param([string]$Name, $Actual, $Expected)
-  if ($Actual -eq $Expected) { Report "PASS" $Name $Actual } else { Report "FAIL" $Name "expected $Expected, got $Actual" }
+function Add-Failure {
+  param([System.Collections.ArrayList]$Failures, [string]$Name, [string]$Detail)
+  [void]$Failures.Add("$Name - $Detail")
 }
 
-try {
-  $health = Invoke-RestMethod -Uri "$BackendUrl/api/system/health" -TimeoutSec 10
-  Assert-Equal "application-status" $health.application_status "available"
-  Assert-Equal "database" $health.database_status "available"
-  Assert-Equal "mt5-terminal" $health.mt5_terminal_status "available"
-  Assert-Equal "mt5-ticks" $health.mt5_tick_status "available"
-  Assert-Equal "mt5-candles" $health.mt5_candles "available"
-  if ($health.degradation_reason_codes.Count -gt 0) { Report "FAIL" "core-degradation-reason-codes" ($health.degradation_reason_codes -join ",") } else { Report "PASS" "core-degradation-reason-codes" "none" }
-  if ($health.continuous_bridge_status -eq "available") { Report "PASS" "continuous-bridge" $health.continuous_bridge_heartbeat } else { Report "FAIL" "continuous-bridge" $health.continuous_bridge_status }
-  if ([int]$health.continuous_bridge_process_count -eq 1) { Report "PASS" "bridge-process-count" "exactly one" } else { Report "FAIL" "bridge-process-count" $health.continuous_bridge_process_count }
-  if ($health.future_timestamp_violations.Count -gt 0) { Report "FAIL" "future-timestamps" $health.future_timestamp_violations.Count } else { Report "PASS" "future-timestamps" "none" }
-  if ($health.stale_warnings.Count -gt 0) { Report "FAIL" "mt5-freshness" "$($health.stale_warnings.Count) stale warnings" } else { Report "PASS" "mt5-freshness" "freshness check returned no warnings" }
-  $ticks = @($health.latest_tick_by_symbol)
+function Get-CoreHealthFailures {
+  param($Health)
+  $failures = New-Object System.Collections.ArrayList
+
+  if ($Health.application_status -ne "available") { Add-Failure $failures "application-status" "expected available, got $($Health.application_status)" }
+  if ($Health.database_status -ne "available") { Add-Failure $failures "database" "expected available, got $($Health.database_status)" }
+  if ($Health.mt5_terminal_status -ne "available") { Add-Failure $failures "mt5-terminal" "expected available, got $($Health.mt5_terminal_status)" }
+  if ($Health.mt5_tick_status -ne "available") { Add-Failure $failures "mt5-ticks" "expected available, got $($Health.mt5_tick_status)" }
+  if ($Health.mt5_candles -ne "available") { Add-Failure $failures "mt5-candles" "expected available, got $($Health.mt5_candles)" }
+
+  $reasonCodes = @($Health.degradation_reason_codes)
+  if ($reasonCodes.Count -gt 0) { Add-Failure $failures "core-degradation-reason-codes" ($reasonCodes -join ",") }
+
+  if ($Health.continuous_bridge_status -ne "available") { Add-Failure $failures "continuous-bridge" "expected available, got $($Health.continuous_bridge_status)" }
+  if ([int]$Health.continuous_bridge_process_count -ne 1) { Add-Failure $failures "bridge-process-count" "expected 1, got $($Health.continuous_bridge_process_count)" }
+
+  $futureViolations = @($Health.future_timestamp_violations)
+  if ($futureViolations.Count -gt 0) { Add-Failure $failures "future-timestamps" "$($futureViolations.Count) violation(s)" }
+
+  $staleWarnings = @($Health.stale_warnings)
+  if ($staleWarnings.Count -gt 0) { Add-Failure $failures "mt5-freshness" "$($staleWarnings.Count) stale warning(s)" }
+
+  $ticks = @($Health.latest_tick_by_symbol)
   foreach ($symbol in $RequiredSymbols) {
     $tick = $ticks | Where-Object { $_.symbol -eq $symbol -or $_.platform_symbol -eq $symbol } | Select-Object -First 1
     if (-not $tick) {
-      Report "FAIL" "tick-$symbol" "missing"
+      Add-Failure $failures "tick-$symbol" "missing"
     } elseif (($tick.status -eq "live" -and $tick.is_fresh -eq $true) -or $tick.status -eq "market_closed") {
-      Report "PASS" "tick-$symbol" $tick.status
+      continue
     } else {
-      Report "FAIL" "tick-$symbol" $tick.status
+      Add-Failure $failures "tick-$symbol" "expected live/fresh or market_closed, got $($tick.status)"
     }
   }
-} catch {
-  Report "FAIL" "backend" $_.Exception.Message
+
+  return @($failures)
 }
 
-try {
-  $frontend = Invoke-WebRequest -Uri $FrontendUrl -UseBasicParsing -TimeoutSec 10
-  if ([int]$frontend.StatusCode -eq 200) { Report "PASS" "frontend" "HTTP 200" } else { Report "FAIL" "frontend" "HTTP $($frontend.StatusCode)" }
-} catch {
-  Report "FAIL" "frontend" $_.Exception.Message
+function Get-RealBridgeProcesses {
+  @(Get-CimInstance Win32_Process | Where-Object {
+    ($_.Name -eq "python.exe" -or $_.Name -eq "pythonw.exe") -and
+    $_.CommandLine -like "*mt5_candle_bridge.py*" -and
+    $_.CommandLine -like "*--run-continuous*"
+  })
 }
+
+function Wait-BackendHealth {
+  $deadline = (Get-Date).AddSeconds(90)
+  $lastFailures = @("backend health was not checked")
+  $lastError = $null
+  do {
+    try {
+      $health = Invoke-RestMethod -Uri "$BackendUrl/api/system/health" -TimeoutSec 10
+      $failures = Get-CoreHealthFailures -Health $health
+      if (@($failures).Count -eq 0) {
+        Report "PASS" "backend-health" "strict core health available"
+        return $health
+      }
+      $lastFailures = $failures
+      $lastError = $null
+    } catch {
+      $lastError = $_.Exception.Message
+      $lastFailures = @()
+    }
+    if ((Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+  } while ((Get-Date) -lt $deadline)
+
+  if ($lastError) {
+    Report "FAIL" "backend-health" $lastError
+  } else {
+    foreach ($failure in $lastFailures) { Report "FAIL" "backend-health" $failure }
+  }
+  return $null
+}
+
+function Wait-Frontend {
+  $deadline = (Get-Date).AddSeconds(60)
+  $lastError = $null
+  do {
+    try {
+      $frontend = Invoke-WebRequest -Uri $FrontendUrl -UseBasicParsing -TimeoutSec 10
+      if ([int]$frontend.StatusCode -eq 200) {
+        Report "PASS" "frontend" "HTTP 200"
+        return
+      }
+      $lastError = "HTTP $($frontend.StatusCode)"
+    } catch {
+      $lastError = $_.Exception.Message
+    }
+    if ((Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+  } while ((Get-Date) -lt $deadline)
+
+  Report "FAIL" "frontend" $lastError
+}
+
+$health = Wait-BackendHealth
+Wait-Frontend
 
 $tailscale = Get-Command "tailscale" -ErrorAction SilentlyContinue
 if ($tailscale) { Report "PASS" "tailscale" "installed" } else { Report "WARN" "tailscale" "not installed" }
@@ -74,9 +137,29 @@ $state = Join-Path $RepoRoot "tools\mt5_bridge\mt5_bridge_state.json"
 if (Test-Path $state) { Report "PASS" "bridge-last-success" "state file present" } else { Report "WARN" "bridge-last-success" "state file not found yet" }
 
 $bridgeTask = Get-ScheduledTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -ErrorAction SilentlyContinue
-if (-not $bridgeTask) { Report "FAIL" "bridge-task" "not registered" } elseif ($bridgeTask.State -ne "Running") { Report "FAIL" "bridge-task" $bridgeTask.State } else { Report "PASS" "bridge-task" "running" }
-$bridgeProcesses = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*TradingAnalysisPlatform:mt5-continuous-bridge*" -or $_.CommandLine -like "*mt5_candle_bridge.py*--run-continuous*" }
-if (@($bridgeProcesses).Count -eq 1) { Report "PASS" "bridge-process" "exactly one process" } else { Report "FAIL" "bridge-process" "found $(@($bridgeProcesses).Count)" }
+$bridgeTaskInfo = Get-ScheduledTaskInfo -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -ErrorAction SilentlyContinue
+if (-not $bridgeTask) {
+  Report "FAIL" "bridge-task" "not registered"
+} else {
+  $lastTaskResult = if ($bridgeTaskInfo) { $bridgeTaskInfo.LastTaskResult } else { "unavailable" }
+  if ($bridgeTask.State -eq "Running") {
+    Report "PASS" "bridge-task" "State=$($bridgeTask.State) LastTaskResult=$lastTaskResult"
+  } else {
+    Report "FAIL" "bridge-task" "State=$($bridgeTask.State) LastTaskResult=$lastTaskResult"
+  }
+}
+
+$bridgeProcesses = Get-RealBridgeProcesses
+if (@($bridgeProcesses).Count -eq 1) {
+  Report "PASS" "bridge-process" "exactly one real Python bridge process"
+} else {
+  Report "FAIL" "bridge-process" "found $(@($bridgeProcesses).Count) real Python bridge process(es)"
+}
+
+if ($health) {
+  if ($health.continuous_bridge_status -ne "available") { Report "FAIL" "backend-bridge-status" $health.continuous_bridge_status }
+  if ([int]$health.continuous_bridge_process_count -ne 1) { Report "FAIL" "backend-bridge-process-count" $health.continuous_bridge_process_count }
+}
 
 if ($script:FailCount -gt 0) {
   Write-Host "FAIL strict production health acceptance ($script:FailCount failure(s), $script:WarnCount warning(s))"
@@ -84,6 +167,7 @@ if ($script:FailCount -gt 0) {
   Stop-Transcript | Out-Null
   exit 2
 }
+
 Write-Host "PASS strict production health acceptance ($script:WarnCount warning(s))"
 Write-Host "Transcript: $TranscriptPath"
 Stop-Transcript | Out-Null
