@@ -5,6 +5,7 @@ import sys
 import types
 import unittest
 import tempfile
+from unittest import mock
 
 
 fake_mt5 = types.SimpleNamespace(TIMEFRAME_D1=1, TIMEFRAME_H4=2, TIMEFRAME_H1=3)
@@ -104,16 +105,128 @@ class BrokerClockNormalizationTests(unittest.TestCase):
             bridge.api_json = original
             bridge.datetime = original_now
 
-    def test_duplicate_continuous_lock_is_rejected(self):
+    def test_active_continuous_lock_pid_is_rejected_without_deleting_lock(self):
         original = bridge.CONTINUOUS_LOCK_FILE
         try:
             bridge.CONTINUOUS_LOCK_FILE = Path(tempfile.gettempdir()) / "tap-test-continuous.lock"
             bridge.CONTINUOUS_LOCK_FILE.write_text(str(__import__("os").getpid()), encoding="utf-8")
-            with self.assertRaisesRegex(RuntimeError, "already running"):
-                with bridge.ContinuousLock(): pass
+            with mock.patch.object(bridge, "is_process_alive", return_value=True):
+                with self.assertRaisesRegex(RuntimeError, "already running"):
+                    with bridge.ContinuousLock(): pass
+            self.assertTrue(bridge.CONTINUOUS_LOCK_FILE.exists())
         finally:
             bridge.CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
             bridge.CONTINUOUS_LOCK_FILE = original
+
+    def test_stale_continuous_lock_pid_is_replaced(self):
+        original = bridge.CONTINUOUS_LOCK_FILE
+        try:
+            bridge.CONTINUOUS_LOCK_FILE = Path(tempfile.gettempdir()) / "tap-test-continuous.lock"
+            bridge.CONTINUOUS_LOCK_FILE.write_text("999999", encoding="utf-8")
+            with mock.patch.object(bridge, "is_process_alive", return_value=False):
+                with bridge.ContinuousLock():
+                    self.assertEqual(bridge.CONTINUOUS_LOCK_FILE.read_text(encoding="utf-8"), str(__import__("os").getpid()))
+            self.assertFalse(bridge.CONTINUOUS_LOCK_FILE.exists())
+        finally:
+            bridge.CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+            bridge.CONTINUOUS_LOCK_FILE = original
+
+    def test_malformed_continuous_lock_is_replaced(self):
+        original = bridge.CONTINUOUS_LOCK_FILE
+        try:
+            bridge.CONTINUOUS_LOCK_FILE = Path(tempfile.gettempdir()) / "tap-test-continuous.lock"
+            bridge.CONTINUOUS_LOCK_FILE.write_text("", encoding="utf-8")
+            with mock.patch.object(bridge, "is_process_alive") as is_alive:
+                with bridge.ContinuousLock():
+                    self.assertEqual(bridge.CONTINUOUS_LOCK_FILE.read_text(encoding="utf-8"), str(__import__("os").getpid()))
+                is_alive.assert_not_called()
+            self.assertFalse(bridge.CONTINUOUS_LOCK_FILE.exists())
+        finally:
+            bridge.CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+            bridge.CONTINUOUS_LOCK_FILE = original
+
+    def test_replaced_lock_is_not_deleted_during_stale_cleanup(self):
+        original = bridge.CONTINUOUS_LOCK_FILE
+        replacement_pid = __import__("os").getpid()
+        try:
+            bridge.CONTINUOUS_LOCK_FILE = Path(tempfile.gettempdir()) / "tap-test-continuous.lock"
+            bridge.CONTINUOUS_LOCK_FILE.write_text("999999", encoding="utf-8")
+
+            def replace_stale_lock(pid):
+                if pid == 999999:
+                    bridge.CONTINUOUS_LOCK_FILE.unlink()
+                    bridge.CONTINUOUS_LOCK_FILE.write_text(str(replacement_pid), encoding="utf-8")
+                    return False
+                return True
+
+            with mock.patch.object(bridge, "is_process_alive", side_effect=replace_stale_lock):
+                with self.assertRaisesRegex(RuntimeError, f"already running with PID {replacement_pid}"):
+                    with bridge.ContinuousLock(): pass
+            self.assertEqual(bridge.CONTINUOUS_LOCK_FILE.read_text(encoding="utf-8"), str(replacement_pid))
+        finally:
+            bridge.CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+            bridge.CONTINUOUS_LOCK_FILE = original
+
+    def test_windows_mutex_acquisition_succeeds_despite_stale_informational_lock(self):
+        original = bridge.CONTINUOUS_LOCK_FILE
+        kernel32 = types.SimpleNamespace(
+            CreateMutexW=mock.Mock(return_value=123),
+            ReleaseMutex=mock.Mock(return_value=True),
+            CloseHandle=mock.Mock(return_value=True),
+        )
+        lock = bridge.ContinuousLock()
+        try:
+            bridge.CONTINUOUS_LOCK_FILE = Path(tempfile.gettempdir()) / "tap-test-continuous.lock"
+            bridge.CONTINUOUS_LOCK_FILE.write_text("999999", encoding="utf-8")
+            lock._enter_windows(kernel32=kernel32, get_last_error=lambda: 0)
+            self.assertEqual(bridge.CONTINUOUS_LOCK_FILE.read_text(encoding="utf-8"), str(__import__("os").getpid()))
+            kernel32.CreateMutexW.assert_called_once_with(None, True, bridge.WINDOWS_MUTEX_NAME)
+        finally:
+            if hasattr(lock, "_windows_mutex_handle"):
+                lock.__exit__(None, None, None)
+            bridge.CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+            bridge.CONTINUOUS_LOCK_FILE = original
+
+    def test_windows_mutex_already_exists_is_rejected(self):
+        kernel32 = types.SimpleNamespace(
+            CreateMutexW=mock.Mock(return_value=456),
+            ReleaseMutex=mock.Mock(return_value=True),
+            CloseHandle=mock.Mock(return_value=True),
+        )
+        with self.assertRaisesRegex(RuntimeError, "Windows mutex exists"):
+            bridge.ContinuousLock()._enter_windows(kernel32=kernel32, get_last_error=lambda: 183)
+        kernel32.ReleaseMutex.assert_not_called()
+        kernel32.CloseHandle.assert_called_once_with(456)
+
+    def test_windows_mutex_handle_is_released_and_closed_on_exit(self):
+        original = bridge.CONTINUOUS_LOCK_FILE
+        kernel32 = types.SimpleNamespace(
+            CreateMutexW=mock.Mock(return_value=789),
+            ReleaseMutex=mock.Mock(return_value=True),
+            CloseHandle=mock.Mock(return_value=True),
+        )
+        lock = bridge.ContinuousLock()
+        try:
+            bridge.CONTINUOUS_LOCK_FILE = Path(tempfile.gettempdir()) / "tap-test-continuous.lock"
+            lock._enter_windows(kernel32=kernel32, get_last_error=lambda: 0)
+            lock.__exit__(None, None, None)
+            kernel32.ReleaseMutex.assert_called_once_with(789)
+            kernel32.CloseHandle.assert_called_once_with(789)
+            self.assertFalse(bridge.CONTINUOUS_LOCK_FILE.exists())
+        finally:
+            bridge.CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+            bridge.CONTINUOUS_LOCK_FILE = original
+
+    def test_windows_liveness_check_queries_exit_code_and_closes_handle(self):
+        kernel32 = types.SimpleNamespace(
+            OpenProcess=mock.Mock(return_value=123),
+            GetExitCodeProcess=mock.Mock(side_effect=lambda _handle, exit_code: setattr(exit_code._obj, "value", 259) or True),
+            CloseHandle=mock.Mock(return_value=True),
+        )
+        self.assertTrue(bridge._is_windows_process_alive(321, kernel32=kernel32))
+        kernel32.OpenProcess.assert_called_once_with(0x1000, False, 321)
+        kernel32.GetExitCodeProcess.assert_called_once()
+        kernel32.CloseHandle.assert_called_once_with(123)
 
 
 if __name__ == "__main__":

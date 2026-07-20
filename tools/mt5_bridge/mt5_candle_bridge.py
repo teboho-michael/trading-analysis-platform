@@ -9,6 +9,8 @@ No order-management APIs are used here.
 from __future__ import annotations
 
 import argparse
+import ctypes
+from ctypes import wintypes
 from datetime import datetime, timezone
 import json
 import os
@@ -30,6 +32,7 @@ DEFAULT_SYMBOLS = ["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"]
 DEFAULT_TIMEFRAMES = ["D1", "H4", "H1"]
 DEFAULT_CANDLE_LIMIT = 500
 CONTINUOUS_LOCK_FILE = BASE_DIR / "mt5_continuous_bridge.lock"
+WINDOWS_MUTEX_NAME = r"Global\TradingAnalysisPlatform-MT5ContinuousBridge"
 TICK_INTERVAL_SECONDS = 5
 CANDLE_INTERVAL_SECONDS = {"H1": 60, "H4": 300, "D1": 900}
 TIMEFRAME_SECONDS = {"H1": 3600, "H4": 14400, "D1": 86400}
@@ -426,21 +429,171 @@ def collect_and_normalize_ticks(symbols: list[str]) -> tuple[list[dict], int, li
     return normalize_collected_ticks(raw_ticks, now) if raw_ticks else [], offset, failed
 
 
+def _is_windows_process_alive(pid: int, kernel32=None) -> bool:
+    process_query_limited_information = 0x1000
+    still_active = 259
+    error_access_denied = 5
+    error_invalid_parameter = 87
+    kernel32 = kernel32 or ctypes.WinDLL("kernel32", use_last_error=True)
+    open_process = kernel32.OpenProcess
+    open_process.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    open_process.restype = wintypes.HANDLE
+    get_exit_code = kernel32.GetExitCodeProcess
+    get_exit_code.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    get_exit_code.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    handle = open_process(process_query_limited_information, False, pid)
+    if not handle:
+        winerror = ctypes.get_last_error()
+        if winerror == error_invalid_parameter:
+            return False
+        if winerror == error_access_denied:
+            return True
+        raise ctypes.WinError(winerror)
+    try:
+        exit_code = wintypes.DWORD()
+        if not get_exit_code(handle, ctypes.byref(exit_code)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return exit_code.value == still_active
+    finally:
+        close_handle(handle)
+
+
+def is_process_alive(pid: int) -> bool:
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ValueError("process PID must be a positive integer")
+    if os.name == "nt":
+        return _is_windows_process_alive(pid)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _read_lock_snapshot(path=None) -> tuple[bytes, tuple[int, int, int, int]]:
+    lock_path = path or CONTINUOUS_LOCK_FILE
+    with lock_path.open("rb") as handle:
+        content = handle.read()
+        metadata = os.fstat(handle.fileno())
+    identity = (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns)
+    return content, identity
+
+
+def _remove_lock_if_unchanged(inspected_content: bytes, inspected_identity: tuple[int, int, int, int]) -> bool:
+    try:
+        current_content, current_identity = _read_lock_snapshot()
+        if current_identity != inspected_identity or current_content != inspected_content:
+            return False
+        CONTINUOUS_LOCK_FILE.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _configure_windows_mutex_api(kernel32):
+    create_mutex = kernel32.CreateMutexW
+    create_mutex.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    create_mutex.restype = wintypes.HANDLE
+    release_mutex = kernel32.ReleaseMutex
+    release_mutex.argtypes = [wintypes.HANDLE]
+    release_mutex.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    return create_mutex, release_mutex, close_handle
+
+
+def _write_informational_lock(pid: int) -> None:
+    temporary_lock = CONTINUOUS_LOCK_FILE.with_name(f"{CONTINUOUS_LOCK_FILE.name}.{pid}.tmp")
+    try:
+        temporary_lock.write_text(str(pid), encoding="utf-8")
+        os.replace(temporary_lock, CONTINUOUS_LOCK_FILE)
+    finally:
+        temporary_lock.unlink(missing_ok=True)
+
+
+def _remove_owned_informational_lock(pid: int) -> None:
+    try:
+        if CONTINUOUS_LOCK_FILE.read_text(encoding="utf-8").strip() == str(pid):
+            CONTINUOUS_LOCK_FILE.unlink()
+    except (FileNotFoundError, OSError):
+        pass
+
+
 class ContinuousLock:
     def __enter__(self):
+        self.pid = os.getpid()
+        if os.name == "nt":
+            return self._enter_windows()
+        return self._enter_posix()
+
+    def _enter_windows(self, kernel32=None, get_last_error=None):
+        error_already_exists = 183
+        kernel32 = kernel32 or ctypes.WinDLL("kernel32", use_last_error=True)
+        get_last_error = get_last_error or ctypes.get_last_error
+        create_mutex, release_mutex, close_handle = _configure_windows_mutex_api(kernel32)
+        handle = create_mutex(None, True, WINDOWS_MUTEX_NAME)
+        if not handle:
+            raise ctypes.WinError(get_last_error())
+        last_error = get_last_error()
+        if last_error == error_already_exists:
+            close_handle(handle)
+            raise RuntimeError("continuous bridge already running (Windows mutex exists)")
+        self.pid = getattr(self, "pid", os.getpid())
+        self._windows_mutex_handle = handle
+        self._windows_release_mutex = release_mutex
+        self._windows_close_handle = close_handle
         try:
-            self.fd = os.open(CONTINUOUS_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            try:
-                existing_pid = int(CONTINUOUS_LOCK_FILE.read_text(encoding="utf-8").strip())
-                os.kill(existing_pid, 0)
-                raise RuntimeError(f"continuous bridge already running with PID {existing_pid}")
-            except (ValueError, ProcessLookupError, PermissionError):
-                CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
-                self.fd = os.open(CONTINUOUS_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(self.fd, str(os.getpid()).encode("ascii")); os.close(self.fd)
+            _write_informational_lock(self.pid)
+        except OSError as exc:
+            print(f"WARN unable to update informational continuous bridge lock: {exc}", flush=True)
         return self
-    def __exit__(self, *_args): CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+
+    def _enter_posix(self):
+        while True:
+            try:
+                self.fd = os.open(CONTINUOUS_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    inspected_content, inspected_identity = _read_lock_snapshot()
+                    existing_pid = int(inspected_content.decode("utf-8").strip())
+                    if existing_pid <= 0:
+                        raise ValueError("lock PID must be positive")
+                except (UnicodeDecodeError, ValueError):
+                    existing_pid = None
+                except FileNotFoundError:
+                    continue
+                if existing_pid is not None and is_process_alive(existing_pid):
+                    raise RuntimeError(f"continuous bridge already running with PID {existing_pid}")
+                if not _remove_lock_if_unchanged(inspected_content, inspected_identity):
+                    continue
+                continue
+            try:
+                os.write(self.fd, str(os.getpid()).encode("ascii"))
+            except Exception:
+                os.close(self.fd)
+                CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
+                raise
+            os.close(self.fd)
+            return self
+
+    def __exit__(self, *_args):
+        if hasattr(self, "_windows_mutex_handle"):
+            _remove_owned_informational_lock(self.pid)
+            try:
+                if not self._windows_release_mutex(self._windows_mutex_handle):
+                    raise ctypes.WinError(ctypes.get_last_error())
+            finally:
+                self._windows_close_handle(self._windows_mutex_handle)
+                del self._windows_mutex_handle
+            return
+        CONTINUOUS_LOCK_FILE.unlink(missing_ok=True)
 
 
 def run_continuous() -> int:
