@@ -18,11 +18,16 @@ function Start-OwnedProcess {
   $stderrLog = Join-Path $LogRoot "$Name.err.log"
   $existing = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*TradingAnalysisPlatform:$Name*" }
   if ($existing) {
+    if (@($existing).Count -gt 1) {
+      throw "Multiple platform-owned $Name roots found: $(@($existing | ForEach-Object { $_.ProcessId }) -join ',')"
+    }
+    Set-Content -Path (Join-Path $LogRoot "$Name.pid") -Value $existing.ProcessId -Encoding ASCII
     Write-Host "PASS $Name already running"
     return
   }
-  Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -WindowStyle Hidden
-  Write-Host "PASS started $Name"
+  $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -WindowStyle Hidden -PassThru
+  Set-Content -Path (Join-Path $LogRoot "$Name.pid") -Value $process.Id -Encoding ASCII
+  Write-Host "PASS started $Name root PID $($process.Id)"
 }
 
 function Get-RealBridgeProcesses {
