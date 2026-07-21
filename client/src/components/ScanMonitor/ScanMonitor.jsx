@@ -3,7 +3,7 @@ import { runMarketScan } from "../../services/marketService";
 
 export default function ScanMonitor({
   latestScanRun,
-  scanRuns,
+  scanRuns = [],
   onScanCompleted,
 }) {
   const [scanning, setScanning] = useState(false);

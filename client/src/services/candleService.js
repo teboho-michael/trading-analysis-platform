@@ -1,4 +1,5 @@
 import api from "./api";
+import { asArray } from "./arrays";
 
 const normalizeCandlesForChart = (candles, symbol, timeframe) => {
   const candleMap = new Map();
@@ -51,9 +52,10 @@ export const getCandles = async (symbol, timeframe) => {
     );
   }
 
+  const storedCandles = asArray(response.data.candles);
   const responseCandles = response.data.forming_candle
-    ? [...response.data.candles, { ...response.data.forming_candle, isForming: true }]
-    : response.data.candles;
+    ? [...storedCandles, { ...response.data.forming_candle, isForming: true }]
+    : storedCandles;
   return {
     candles: normalizeCandlesForChart(responseCandles, symbol, timeframe),
     metadata: {

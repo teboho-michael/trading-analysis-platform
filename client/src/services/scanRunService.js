@@ -1,4 +1,5 @@
 import api from "./api";
+import { asArray } from "./arrays";
 
 export const getLatestScanRun = async () => {
   const response = await api.get("/scan-runs/latest");
@@ -7,5 +8,5 @@ export const getLatestScanRun = async () => {
 
 export const getScanRuns = async () => {
   const response = await api.get("/scan-runs");
-  return response.data.scanRuns;
+  return asArray(response.data.scanRuns);
 };

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../../services/api";
+import { asArray } from "../../services/arrays";
 
 const FILTERS = [["all", "All"], ["setup", "Setups"], ["watch", "Watch"], ["observation", "Observations"], ["provider_limited", "Provider Limited"]];
 const date = (value) => value ? new Date(value).toLocaleString() : "—";
@@ -33,7 +34,7 @@ export default function ForwardTestJournal({ selectedSymbol, refreshToken }) {
       if (filter !== "all") params.set("entry_type", filter);
       const query = params.size ? `?${params}` : "", scope = selectedSymbol ? `?symbol=${encodeURIComponent(selectedSymbol)}` : "";
       const [journal, open, metrics] = await Promise.all([api.get(`/journal${query}`), api.get(`/journal/open${scope}`), api.get(`/journal/performance${scope}`)]);
-      setEntries(journal.data.entries || []); setOpenEntries(open.data.entries || []); setPerformance(metrics.data || { overall: {} }); setError("");
+      setEntries(asArray(journal.data.entries)); setOpenEntries(asArray(open.data.entries)); setPerformance(metrics.data || { overall: {} }); setError("");
     } catch (requestError) { setError(requestError.response?.data?.error || "Journal is unavailable. Apply migrations through 008 and retry."); }
   }, [selectedSymbol, filter]);
   useEffect(() => { load(); }, [load, refreshToken]);

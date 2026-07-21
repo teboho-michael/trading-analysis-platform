@@ -91,7 +91,7 @@ if ($postgres -and $postgres.Status -ne "Running") {
 Write-Host "PASS PostgreSQL service checked; keep PostgreSQL bound to localhost/private interfaces only"
 
 Start-OwnedProcess -Name "backend" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:backend'; & '$NpmExe' start`"" -WorkingDirectory (Join-Path $RepoRoot "server")
-Start-OwnedProcess -Name "frontend" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:frontend'; & '$NpmExe' run preview -- --host 127.0.0.1 --port 4173`"" -WorkingDirectory (Join-Path $RepoRoot "client")
+Start-OwnedProcess -Name "frontend" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:frontend'; & '$NpmExe' run preview`"" -WorkingDirectory (Join-Path $RepoRoot "client")
 
 $bridgeTask = Get-ScheduledTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -ErrorAction SilentlyContinue
 if (-not $bridgeTask) { throw "TradingAnalysisPlatform-MT5ContinuousBridge is not registered" }

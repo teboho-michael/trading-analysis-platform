@@ -11,7 +11,7 @@ const formatPrice = (value) => {
 };
 
 export default function Watchlist({
-  dashboard,
+  dashboard = [],
   selectedAsset,
   selectedLatestPrice,
   onSelect,

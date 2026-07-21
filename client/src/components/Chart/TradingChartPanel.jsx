@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import Chart from "./Chart";
 import ChartToolbar from "./ChartToolbar";
+import { signalLabelFor } from "../../services/analysisDisplay";
 import { backendCollectionError, collectMarketData } from "../../services/marketService";
 import { formatSastTime } from "../../utils/time";
 
 const formatDateTime = formatSastTime;
 
 export default function TradingChartPanel({
-  candles,
+  candles = [],
   candleMetadata,
   candlesLoading,
   candlesError,
@@ -94,7 +95,7 @@ export default function TradingChartPanel({
           Zone <strong>{activeZone?.zone_type || "None"}</strong>
         </span>
         <span>
-          Signal <strong>{selectedAssetData?.latestSignal?.signal_type || selectedAssetData?.signal || "None"}</strong>
+          Signal <strong>{signalLabelFor(selectedAssetData)}</strong>
         </span>
         <span className={isForming ? "forming-status" : ""}>
           Candle <strong>{isForming ? "Forming · unconfirmed" : "Confirmed history"}</strong>

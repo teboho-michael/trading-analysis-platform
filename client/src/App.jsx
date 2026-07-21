@@ -10,10 +10,16 @@ import { useLivePrices } from "./hooks/useLivePrices";
 import { useFormingCandles } from "./hooks/useFormingCandles";
 import { CHART_TIMEFRAMES, getAnalysisTimeframe } from "./config/timeframes";
 import api from "./services/api";
+import {
+  fallbackDashboardSymbol,
+  selectedDashboardAsset,
+} from "./services/dashboardSelection";
+import { asArray } from "./services/arrays";
 import { formatSastTime } from "./utils/time";
 
 const formatTime = formatSastTime;
-const TRACKED_ASSETS = new Set(["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"]);
+const TRACKED_ASSET_ORDER = ["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"];
+const TRACKED_ASSETS = new Set(TRACKED_ASSET_ORDER);
 const ALLOWED_CHART_TIMEFRAMES = new Set(CHART_TIMEFRAMES);
 const initialParam = (name, allowed, fallback) => {
   const value = new URLSearchParams(window.location.search).get(name);
@@ -42,9 +48,7 @@ function App() {
     selectedTimeframe,
   );
 
-  const selectedAssetData = dashboard.find(
-    (asset) => asset.symbol === selectedAsset,
-  );
+  const selectedAssetData = selectedDashboardAsset(dashboard, selectedAsset);
   const selectedCandles =
     candles.length === 0 || candles[0]?.symbol === selectedAsset ? candles : [];
   const live = useLivePrices(liveMode);
@@ -52,13 +56,20 @@ function App() {
   const selectedLiveQuote = activeLivePrices[selectedAsset];
   const visibleCandles = useFormingCandles(selectedCandles, selectedLiveQuote, selectedAsset, selectedTimeframe, liveMode);
   const latestPrice = selectedLiveQuote?.display_price ?? selectedLiveQuote?.price ?? null;
-  const selectedFreshness = systemHealth?.latest_mt5_candles?.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
-  const selectedStaleWarning = systemHealth?.stale_data_warnings?.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
+  const latestMt5Candles = asArray(systemHealth?.latest_mt5_candles);
+  const staleDataWarnings = asArray(systemHealth?.stale_data_warnings);
+  const selectedFreshness = latestMt5Candles.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
+  const selectedStaleWarning = staleDataWarnings.find((item) => item.symbol === selectedAsset && item.timeframe === getAnalysisTimeframe(selectedTimeframe));
 
   const handleDataCollected = () => {
     refreshDashboard();
     refreshCandles();
   };
+
+  useEffect(() => {
+    const fallbackSymbol = fallbackDashboardSymbol(dashboard, selectedAsset);
+    if (fallbackSymbol !== selectedAsset) setSelectedAsset(fallbackSymbol);
+  }, [dashboard, selectedAsset]);
 
   useEffect(() => {
     let active = true;
@@ -95,6 +106,16 @@ function App() {
     );
   }
 
+  if (dashboard.length === 0) {
+    return (
+      <div className="app-state" role="status">
+        <strong>Dashboard has no instruments</strong>
+        <span>No MT5 dashboard rows are available yet.</span>
+        <button type="button" onClick={refreshDashboard}>Retry</button>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="platform-header">
@@ -117,6 +138,12 @@ function App() {
           <button type="button" className={focusMode ? "active" : ""} onClick={() => setFocusMode((value) => !value)}>{focusMode ? "Exit focus" : "Focus chart"}</button>
         </div>
       </header>
+
+      {error && dashboard.length > 0 && (
+        <p className="status-message error" role="status">
+          Dashboard refresh unavailable: {error}
+        </p>
+      )}
 
       <main className={`trading-workspace${!analysisVisible ? " analysis-hidden" : ""}${!historyVisible ? " history-hidden" : ""}${focusMode ? " terminal-focus" : ""}`}>
         {!focusMode && <Watchlist

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../../services/api";
+import { asArray } from "../../services/arrays";
 import ForwardTestJournal, { PerformanceSummary } from "../Journal/ForwardTestJournal";
 import BacktestingResearch from "../Research/BacktestingResearch";
 
@@ -16,7 +17,7 @@ export default function LowerTabs({ selectedSymbol, collapsed, onToggleCollapsed
       const calls = await Promise.allSettled([api.get("/signals"), api.get("/zones"), api.get("/alerts/history?limit=100"), api.get("/journal/performance")]);
       if (!active) return;
       const payload = (index) => calls[index].status === "fulfilled" ? calls[index].value.data : calls[index].reason.response?.data;
-      setData({ signals: payload(0)?.signals || [], zones: payload(1)?.zones || [], alerts: payload(2)?.alerts || [], performance: payload(3) || { overall: {} } });
+      setData({ signals: asArray(payload(0)?.signals), zones: asArray(payload(1)?.zones), alerts: asArray(payload(2)?.alerts), performance: payload(3) || { overall: {} } });
       setError(calls.every((call) => call.status === "rejected") ? "System history is unavailable." : "");
     };
     load(); const timer = setInterval(load, 30000); return () => { active = false; clearInterval(timer); };

@@ -1,7 +1,7 @@
 import AssetCard from "./AssetCard";
 
 export default function DashboardGrid({
-  dashboard,
+  dashboard = [],
   selectedAsset,
   onAssetSelect,
 }) {

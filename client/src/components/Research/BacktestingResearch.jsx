@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../../services/api";
+import { asArray } from "../../services/arrays";
 
 const date = (value) => value ? new Date(value).toLocaleString() : "—";
 const number = (value) => value === null || value === undefined ? "—" : Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 });
@@ -17,8 +18,8 @@ export default function BacktestingResearch({ selectedSymbol }) {
   const load = useCallback(async () => {
     try {
       const [strategyResponse, runResponse, experimentResponse] = await Promise.all([api.get("/strategies"), api.get("/backtests"), api.get("/research/experiments")]);
-      const nextStrategies = strategyResponse.data.strategies || [], nextRuns = runResponse.data.backtests || [];
-      setStrategies(nextStrategies); setRuns(nextRuns); setExperiments(experimentResponse.data.experiments || []);
+      const nextStrategies = asArray(strategyResponse.data.strategies), nextRuns = asArray(runResponse.data.backtests);
+      setStrategies(nextStrategies); setRuns(nextRuns); setExperiments(asArray(experimentResponse.data.experiments));
       setForm((current) => ({ ...current, strategy_version_id: current.strategy_version_id || String(nextStrategies.find((item) => item.is_active)?.id || nextStrategies[0]?.id || "") }));
       setError("");
     } catch (requestError) { setError(requestError.response?.data?.error || "Research data is unavailable. Apply migration 009 and retry."); }
@@ -27,7 +28,7 @@ export default function BacktestingResearch({ selectedSymbol }) {
   useEffect(() => { if (selectedSymbol) setForm((current) => ({ ...current, symbol: selectedSymbol })); }, [selectedSymbol]);
   const selectRun = async (run) => {
     setSelectedRun(run); setResults([]);
-    try { const response = await api.get(`/backtests/${run.id}/results`); setSelectedRun(response.data.backtest); setResults(response.data.results || []); setError(""); }
+    try { const response = await api.get(`/backtests/${run.id}/results`); setSelectedRun(response.data.backtest); setResults(asArray(response.data.results)); setError(""); }
     catch (requestError) { setError(requestError.response?.data?.error || "Backtest results are unavailable."); }
   };
   const submit = async (event) => {
@@ -44,7 +45,7 @@ export default function BacktestingResearch({ selectedSymbol }) {
   };
   const collectRequired = async () => {
     setBusy(true); setError("");
-    try { const response = await api.post("/backtests/collect-required", requestParams()); setReadiness(response.data.readiness); const limitations = (response.data.collection_statuses || []).filter((item) => ["awaiting_mt5_candles", "stale_mt5_candles", "failed"].includes(item.status)); if (limitations.length) setError(limitations.map((item) => `${item.timeframe}: ${item.message}`).join(" · ")); }
+    try { const response = await api.post("/backtests/collect-required", requestParams()); setReadiness(response.data.readiness); const limitations = asArray(response.data.collection_statuses).filter((item) => ["awaiting_mt5_candles", "stale_mt5_candles", "failed"].includes(item.status)); if (limitations.length) setError(limitations.map((item) => `${item.timeframe}: ${item.message}`).join(" · ")); }
     catch (requestError) { setError(requestError.response?.data?.error || "Required data could not be collected."); }
     finally { setBusy(false); }
   };
@@ -60,17 +61,20 @@ export default function BacktestingResearch({ selectedSymbol }) {
   useEffect(() => { setReadiness(null); loadIntelligence(); loadConditionResearch(); }, [form.strategy_version_id, form.symbol, form.date_from, form.date_to, loadIntelligence, loadConditionResearch]);
   const selectExperiment = async (experiment) => {
     setSelectedExperiment(experiment); setExperimentResults([]);
-    try { const response = await api.get(`/research/experiments/${experiment.id}/results`); setSelectedExperiment(response.data.experiment); setExperimentResults(response.data.results || []); setError(""); }
+    try { const response = await api.get(`/research/experiments/${experiment.id}/results`); setSelectedExperiment(response.data.experiment); setExperimentResults(asArray(response.data.results)); setError(""); }
     catch (requestError) { setError(requestError.response?.data?.error || "Experiment results are unavailable."); }
   };
   const runExperiment = async () => {
     setBusy(true); setError("");
-    try { const response = await api.post("/research/experiments/run", { experiment_type: experimentType, symbol: form.symbol, timeframe: form.timeframe, date_from: form.date_from, date_to: form.date_to, base_strategy_version_id: Number(form.strategy_version_id) || null, parameters: {} }); await load(); setSelectedExperiment(response.data.experiment); setExperimentResults(response.data.results || []); }
+    try { const response = await api.post("/research/experiments/run", { experiment_type: experimentType, symbol: form.symbol, timeframe: form.timeframe, date_from: form.date_from, date_to: form.date_to, base_strategy_version_id: Number(form.strategy_version_id) || null, parameters: {} }); await load(); setSelectedExperiment(response.data.experiment); setExperimentResults(asArray(response.data.results)); }
     catch (requestError) { setError(requestError.response?.data?.error || "Research experiment could not be run."); }
     finally { setBusy(false); }
   };
   const strategyLabel = (run) => run ? `${run.strategy_name || "Strategy"} ${run.strategy_version || ""}` : "—";
   const summary = selectedRun?.result_summary_json || {};
+  const readinessMissingTimeframes = asArray(readiness?.missing_timeframes);
+  const readinessRequiredTimeframes = asArray(readiness?.required_timeframes);
+  const intelligenceSymbols = asArray(intelligence?.symbols);
   return <div className="research-workspace">
     <form className="research-form" onSubmit={submit}>
       <label>Strategy<select value={form.strategy_version_id} onChange={(event) => setForm({ ...form, strategy_version_id: event.target.value })} required><option value="">Select strategy</option>{strategies.map((item) => <option key={item.id} value={item.id}>{item.strategy_name} · {item.version}</option>)}</select></label>
@@ -81,11 +85,11 @@ export default function BacktestingResearch({ selectedSymbol }) {
       <div className="research-actions"><button type="button" disabled={busy || !form.strategy_version_id} onClick={checkReadiness}>Check Readiness</button><button type="button" disabled={busy || !form.strategy_version_id} onClick={collectRequired}>Collect Required Data</button><button disabled={busy || !form.strategy_version_id || readiness?.ready === false}>{busy ? "Working…" : "Run Backtest"}</button></div>
     </form>
     {error && <p className="journal-message error">{error}</p>}
-    <section className="research-readiness"><div className="journal-section-heading"><h3>Strategy Data Readiness</h3><small>{readiness?.ready ? "MT5 broker evidence is ready." : readiness ? `Missing MT5: ${readiness.missing_timeframes.join(", ") || "none"}` : "Check MT5 D1/H4/H1 data"}</small></div>
-      {readiness ? <><div className="research-intelligence"><span>Evidence source<strong>{readiness.data_source}</strong></span><span>Source purity<strong>{readiness.source_purity}</strong></span><span>MT5 candles<strong>{readiness.mt5_candle_count}</strong></span><span>Non-MT5 candles<strong>{readiness.non_mt5_candle_count}</strong></span></div><div className="readiness-grid">{readiness.required_timeframes.map((item) => <span key={item.timeframe} className={item.ready ? "ready" : "missing"}><strong>{item.timeframe} · {item.ready ? "ready" : "missing_mt5_data"}</strong><small>{item.role.replaceAll("_", " ")}</small><small>{item.available} / {item.required} MT5 candles</small><small>{date(item.earliest)} → {date(item.latest)}</small></span>)}</div></> : <p className="journal-message">Readiness uses MT5 broker candle counts only.</p>}
+    <section className="research-readiness"><div className="journal-section-heading"><h3>Strategy Data Readiness</h3><small>{readiness?.ready ? "MT5 broker evidence is ready." : readiness ? `Missing MT5: ${readinessMissingTimeframes.join(", ") || "none"}` : "Check MT5 D1/H4/H1 data"}</small></div>
+      {readiness ? <><div className="research-intelligence"><span>Evidence source<strong>{readiness.data_source}</strong></span><span>Source purity<strong>{readiness.source_purity}</strong></span><span>MT5 candles<strong>{readiness.mt5_candle_count}</strong></span><span>Non-MT5 candles<strong>{readiness.non_mt5_candle_count}</strong></span></div><div className="readiness-grid">{readinessRequiredTimeframes.map((item) => <span key={item.timeframe} className={item.ready ? "ready" : "missing"}><strong>{item.timeframe} · {item.ready ? "ready" : "missing_mt5_data"}</strong><small>{item.role.replaceAll("_", " ")}</small><small>{item.available} / {item.required} MT5 candles</small><small>{date(item.earliest)} → {date(item.latest)}</small></span>)}</div></> : <p className="journal-message">Readiness uses MT5 broker candle counts only.</p>}
     </section>
     <section><div className="journal-section-heading"><h3>Research Intelligence</h3><small>{intelligence?.evidence_status || "insufficient_data"} · MT5-only</small></div>
-      {intelligence?.symbols?.length ? intelligence.symbols.map((item) => <div className="research-intelligence" key={item.symbol}><span>Symbol<strong>{item.symbol}</strong></span><span>Status<strong>{item.status}</strong></span><span>Completed setups<strong>{item.completed_setups}</strong></span><span>Win rate<strong>{item.win_rate === null ? "—" : `${number(item.win_rate)}%`}</strong></span><span>Average R<strong>{number(item.average_r)}</strong></span><span>Total R<strong>{number(item.total_r)}</strong></span><span className="wide">Recommendation<strong>{item.recommendation}</strong></span><span className="wide">Reason<strong>{item.reason}</strong></span></div>) : <p className="journal-message">Insufficient completed backtest evidence.</p>}
+      {intelligenceSymbols.length ? intelligenceSymbols.map((item) => <div className="research-intelligence" key={item.symbol}><span>Symbol<strong>{item.symbol}</strong></span><span>Status<strong>{item.status}</strong></span><span>Completed setups<strong>{item.completed_setups}</strong></span><span>Win rate<strong>{item.win_rate === null ? "—" : `${number(item.win_rate)}%`}</strong></span><span>Average R<strong>{number(item.average_r)}</strong></span><span>Total R<strong>{number(item.total_r)}</strong></span><span className="wide">Recommendation<strong>{item.recommendation}</strong></span><span className="wide">Reason<strong>{item.reason}</strong></span></div>) : <p className="journal-message">Insufficient completed backtest evidence.</p>}
     </section>
     <section><div className="journal-section-heading"><h3>Pattern Discovery</h3><small>MT5-only deterministic research</small></div>
       {conditionResearch?.status === "available" ? <div className="research-intelligence pattern-discovery"><span>Market condition<strong>{conditionResearch.market_condition.condition}</strong></span><span>Confidence<strong>{conditionResearch.market_condition.confidence || "—"}</strong></span><span>Behavior<strong>{conditionResearch.trend_vs_mean_reversion.dominant_behavior}</strong></span><span>Pattern<strong>{conditionResearch.pattern_labels?.[0]?.pattern_label || "—"}</strong></span><span>Candles<strong>{conditionResearch.candle_evidence.available} / {conditionResearch.candle_evidence.required}</strong></span><span>Research only<strong>Not a trade instruction</strong></span><span className="wide">Reason<strong>{conditionResearch.market_condition.reason}</strong></span><span className="wide">Suggestion<strong>{conditionResearch.trend_vs_mean_reversion.recommendation}</strong></span></div> : <p className="journal-message">Insufficient stored data for condition and pattern classification.</p>}

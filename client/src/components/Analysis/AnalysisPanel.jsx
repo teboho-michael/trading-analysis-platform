@@ -1,6 +1,11 @@
 import { getInstrument } from "../../config/instruments";
 import { useEffect, useMemo, useState } from "react";
 import api from "../../services/api";
+import {
+  confirmationChecklistFor,
+  hasRiskObject,
+} from "../../services/analysisDisplay";
+import { asArray } from "../../services/arrays";
 
 const formatValue = (value, maximumFractionDigits = 5) => {
   const numericValue = Number(value);
@@ -60,13 +65,13 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
     stopLoss: asset.latestSignal.stop_loss,
     takeProfit1: asset.latestSignal.take_profit_1,
     takeProfit2: asset.latestSignal.take_profit_2,
-  } : asset.risk ? {
+  } : hasRiskObject(asset) ? {
     entry: asset.risk.entryPrice,
     stopLoss: asset.risk.stopLoss,
     takeProfit1: asset.risk.takeProfit1,
     takeProfit2: asset.risk.takeProfit2,
   } : null;
-  const checklist = asset.confirmationChecklist || [];
+  const checklist = confirmationChecklistFor(asset);
   const emaConfirmation = checklist.find((item) => item.key === "h1Ema");
   const zoneAlignment = checklist.find((item) => item.key === "activeZone");
   const proximity = checklist.find((item) => item.key === "proximity");
@@ -84,8 +89,9 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
     let active = true;
     api.get(`/journal?symbol=${encodeURIComponent(asset.symbol)}&limit=50`).then((response) => {
       if (!active) return;
-      const existing = (response.data.entries || []).find((entry) => entry.signal_id && entry.signal_id === asset.latestSignal?.id)
-        || (response.data.entries || []).find((entry) => entry.dedupe_key === dedupeKey);
+      const entries = asArray(response.data.entries);
+      const existing = entries.find((entry) => entry.signal_id && entry.signal_id === asset.latestSignal?.id)
+        || entries.find((entry) => entry.dedupe_key === dedupeKey);
       setJournalState((current) => ({ ...current, entry: existing || null, message: existing ? "Already in journal." : "", error: false }));
     }).catch(() => {});
     return () => { active = false; };
@@ -189,7 +195,7 @@ function AnalysisPanelContent({ asset, latestPrice, liveQuote, selectedTimeframe
           <AnalysisRow label="TP2" value={formatValue(levels?.takeProfit2)} valueClass="target-level" />
         </div>
         {!levels && <p className="decision-empty">No valid entry yet.</p>}
-        {asset.risk && <p className="level-note">Risk {asset.risk.riskPercent}% · {formatValue(asset.risk.positionSizeUnits, 6)} units</p>}
+        {hasRiskObject(asset) && <p className="level-note">Risk {asset.risk.riskPercent}% · {formatValue(asset.risk.positionSizeUnits, 6)} units</p>}
       </section>
 
       <section className="decision-card paper-card">

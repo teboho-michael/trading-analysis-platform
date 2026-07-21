@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { asArray } from "../services/arrays";
 import { getLivePrices } from "../services/liveMarketService";
 
 const POLL_INTERVAL_MS = 5000;
@@ -18,16 +19,18 @@ export const useLivePrices = (enabled) => {
     inFlightRef.current = true;
     try {
       const result = await getLivePrices();
-      const next = Object.fromEntries(result.prices.map((quote) => [quote.symbol, quote]));
+      const livePrices = asArray(result?.prices);
+      const liveErrors = asArray(result?.errors);
+      const next = Object.fromEntries(livePrices.map((quote) => [quote.symbol, quote]));
       const nextMovement = {};
       for (const [symbol, quote] of Object.entries(next)) {
         const previous = pricesRef.current[symbol]?.price;
         nextMovement[symbol] = previous == null || quote.price == null || quote.price === previous ? "flat" : quote.price > previous ? "up" : "down";
       }
-      const quoteTimes = result.prices.map((quote) => new Date(quote.timestamp).getTime()).filter(Number.isFinite);
+      const quoteTimes = livePrices.map((quote) => new Date(quote.timestamp).getTime()).filter(Number.isFinite);
       pricesRef.current = next;
-      const unavailable = result.prices.some((quote) => ["delayed", "stale", "unavailable"].includes(quote.status));
-      setPrices(next); setMovements(nextMovement); setLastUpdated(quoteTimes.length ? new Date(Math.max(...quoteTimes)).toISOString() : null); setLastScan(result.lastScan); setStatus(unavailable ? "degraded" : "live"); setError(unavailable ? "MT5 live tick unavailable or stale. Candle close remains separate." : result.errors?.length ? result.errors.map((item) => `${item.symbol}: ${item.error || item.message}`).join("; ") : "");
+      const unavailable = livePrices.some((quote) => ["delayed", "stale", "unavailable"].includes(quote.status));
+      setPrices(next); setMovements(nextMovement); setLastUpdated(quoteTimes.length ? new Date(Math.max(...quoteTimes)).toISOString() : null); setLastScan(result?.lastScan); setStatus(unavailable ? "degraded" : "live"); setError(unavailable ? "MT5 live tick unavailable or stale. Candle close remains separate." : liveErrors.length ? liveErrors.map((item) => `${item.symbol}: ${item.error || item.message}`).join("; ") : "");
     } catch (requestError) {
       setStatus("error");
       setError(requestError.response?.data?.error || requestError.message || "Live prices unavailable");
