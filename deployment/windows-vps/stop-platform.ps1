@@ -5,8 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $TaskKillExe = Join-Path $env:SystemRoot "System32\taskkill.exe"
-$OwnedNames = @("backend", "frontend", "cloudflared")
-$RequiredPorts = @(4173, 5000)
+$OwnedNames = @("backend", "frontend")
+$RequiredPorts = @(5000)
 $pathSeparators = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
 $normalizedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd($pathSeparators).Replace("/", "\")
 $normalizedServerRoot = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot "server")).TrimEnd($pathSeparators).Replace("/", "\")
@@ -298,4 +298,4 @@ foreach ($name in $OwnedNames) {
   Remove-Item (Join-Path $LogRoot "$name.pid") -Force -ErrorAction SilentlyContinue
 }
 $global:LASTEXITCODE = 0
-Write-Host "PASS platform process trees stopped and ports 4173/5000 released"
+Write-Host "PASS platform process trees stopped and port 5000 released"

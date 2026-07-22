@@ -9,5 +9,10 @@ dist/
 .DS_Store
 *.local.json
 mt5_bridge_state.json
+logs/
+backups/
+runtime/
+.last-successful-deploy
+.previous-successful-deploy
 deployment/windows-vps/logs/
 deployment/windows-vps/backups/

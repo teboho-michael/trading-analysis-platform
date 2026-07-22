@@ -1,5 +1,5 @@
 param(
-  [string]$PlatformRoot = "C:\TradingAnalysisPlatform",
+  [string]$PlatformRoot = "C:\trading-analysis-platform",
   [switch]$ValidateOnly
 )
 
@@ -9,8 +9,7 @@ $required = @(
   @{ Name = "Node.js"; Command = "node" },
   @{ Name = "npm"; Command = "npm" },
   @{ Name = "Python"; Command = "py" },
-  @{ Name = "PostgreSQL psql"; Command = "psql" },
-  @{ Name = "cloudflared"; Command = "cloudflared" }
+  @{ Name = "PostgreSQL psql"; Command = "psql" }
 )
 
 Write-Host "TradingAnalysisPlatform setup check"
@@ -37,3 +36,4 @@ if (Test-Path $mt5Path) {
 }
 
 Write-Host "No secrets were installed. Configure local environment variables or ignored local config files on the VPS."
+Write-Host "Tailscale is validated separately; this setup script does not change Tailscale or firewall configuration."

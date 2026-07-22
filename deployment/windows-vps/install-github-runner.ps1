@@ -1,5 +1,5 @@
 param(
-  [string]$RunnerRoot = "C:\TradingAnalysisPlatform\github-runner",
+  [string]$RunnerRoot = "C:\trading-analysis-platform\github-runner",
   [string]$RepoUrl,
   [string]$RunnerVersion = "2.328.0"
 )

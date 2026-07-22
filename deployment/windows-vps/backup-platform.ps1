@@ -1,11 +1,17 @@
 param(
-  [string]$BackupRoot = "C:\TradingAnalysisPlatform\backups",
+  [string]$BackupRoot = "C:\trading-analysis-platform\backups",
+  [string]$LogRoot = "C:\trading-analysis-platform\logs",
   [string]$DatabaseName = "trading_analysis",
   [int]$RetentionDays = 14
 )
 
 $ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Force -Path $BackupRoot, $LogRoot | Out-Null
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss-ffff"
+$TranscriptPath = Join-Path $LogRoot ("backup-platform-{0}.log" -f $timestamp)
+Start-Transcript -Path $TranscriptPath -Force | Out-Null
+
+try {
 $target = Join-Path $BackupRoot $timestamp
 if (Test-Path $target) {
   throw "Backup target already exists: $target"
@@ -30,4 +36,9 @@ $manifest = @{
 $manifest | ConvertTo-Json | Out-File -Encoding utf8 (Join-Path $target "backup-manifest.json")
 
 Get-ChildItem $BackupRoot -Directory | Where-Object { $_.CreationTime -lt (Get-Date).AddDays(-$RetentionDays) } | Remove-Item -Recurse -Force
+Get-ChildItem $LogRoot -File -Filter "backup-platform-*.log" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$RetentionDays) } | Remove-Item -Force
 Write-Host "PASS backup created: $target"
+Write-Host "Transcript: $TranscriptPath"
+} finally {
+  Stop-Transcript | Out-Null
+}

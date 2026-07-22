@@ -1,8 +1,9 @@
 param(
   [string]$BackendUrl = "http://127.0.0.1:5000",
-  [string]$FrontendUrl = "http://127.0.0.1:4173",
+  [string]$FrontendUrl = "",
   [string]$RepoRoot = "C:\trading-analysis-platform",
-  [string]$LogRoot = "C:\trading-analysis-platform\logs"
+  [string]$LogRoot = "C:\trading-analysis-platform\logs",
+  [string]$BackupRoot = "C:\trading-analysis-platform\backups"
 )
 
 $ErrorActionPreference = "Continue"
@@ -13,6 +14,7 @@ $RequiredSymbols = @("BTCUSD", "XAUUSD", "USDJPY", "US500", "US100")
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 $TranscriptPath = Join-Path $LogRoot ("health-check-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 Start-Transcript -Path $TranscriptPath -Force | Out-Null
+if (-not $FrontendUrl) { $FrontendUrl = $BackendUrl }
 
 function Report {
   param([string]$Level, [string]$Name, [string]$Detail)
@@ -120,11 +122,46 @@ function Wait-Frontend {
   Report "FAIL" "frontend" $lastError
 }
 
+function Test-Task {
+  param([string]$TaskName, [bool]$RequireRunning = $true)
+  $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
+  if (-not $task) {
+    Report "FAIL" $TaskName "not registered"
+    return
+  }
+  $lastTaskResult = if ($taskInfo) { $taskInfo.LastTaskResult } else { "unavailable" }
+  if ($RequireRunning -and $task.State -ne "Running") {
+    Report "FAIL" $TaskName "State=$($task.State) LastTaskResult=$lastTaskResult"
+  } else {
+    Report "PASS" $TaskName "State=$($task.State) LastTaskResult=$lastTaskResult"
+  }
+}
+
+function Test-WindowsService {
+  param([string]$Pattern, [string]$Name, [bool]$WarnIfMissing = $false)
+  $service = Get-Service -Name $Pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $service) {
+    if ($WarnIfMissing) { Report "WARN" $Name "service not found" } else { Report "FAIL" $Name "service not found" }
+    return
+  }
+  if ($service.Status -eq "Running") {
+    Report "PASS" $Name "$($service.Name) running"
+  } else {
+    Report "FAIL" $Name "$($service.Name) status $($service.Status)"
+  }
+}
+
 $health = Wait-BackendHealth
 Wait-Frontend
 
-$tailscale = Get-Command "tailscale" -ErrorAction SilentlyContinue
-if ($tailscale) { Report "PASS" "tailscale" "installed" } else { Report "WARN" "tailscale" "not installed" }
+Test-WindowsService -Pattern "postgresql*" -Name "postgres-service"
+Test-WindowsService -Pattern "Tailscale" -Name "tailscale-service" -WarnIfMissing $true
+
+$mt5Process = Get-Process -Name "terminal64" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($mt5Process) { Report "PASS" "mt5-process" "terminal64 PID=$($mt5Process.Id)" } else { Report "FAIL" "mt5-process" "terminal64.exe not found" }
+
+Test-Task -TaskName "TradingAnalysisPlatform-Backend"
 
 $drive = Get-PSDrive -Name C
 if ($drive.Free -lt 10GB) { Report "WARN" "disk" "free space below 10GB" } else { Report "PASS" "disk" "$([math]::Round($drive.Free / 1GB, 2)) GB free" }
@@ -159,6 +196,16 @@ if (@($bridgeProcesses).Count -eq 1) {
 if ($health) {
   if ($health.continuous_bridge_status -ne "available") { Report "FAIL" "backend-bridge-status" $health.continuous_bridge_status }
   if ([int]$health.continuous_bridge_process_count -ne 1) { Report "FAIL" "backend-bridge-process-count" $health.continuous_bridge_process_count }
+}
+
+Test-Task -TaskName "TradingAnalysisPlatform-HealthCheck" -RequireRunning $false
+Test-Task -TaskName "TradingAnalysisPlatform-DailyBackup" -RequireRunning $false
+
+$latestBackup = Get-ChildItem $BackupRoot -Recurse -Filter "*.dump" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($latestBackup -and $latestBackup.Length -gt 0) {
+  Report "PASS" "latest-backup" "$($latestBackup.FullName) Length=$($latestBackup.Length)"
+} else {
+  Report "WARN" "latest-backup" "no non-empty backup dump found yet"
 }
 
 if ($script:FailCount -gt 0) {

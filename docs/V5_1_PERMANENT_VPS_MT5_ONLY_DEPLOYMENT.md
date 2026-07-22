@@ -16,15 +16,15 @@ V5.1 moves the platform toward a permanent Windows VPS runtime. The laptop is de
 ```text
 Windows VPS
   MetaTrader 5 desktop
-  tools/mt5_bridge/mt5_candle_bridge.py --sync-all
-  tools/mt5_bridge/mt5_candle_bridge.py --ticks
+  tools/mt5_bridge/mt5_candle_bridge.py --run-continuous
   Node backend on localhost
+  React build served by the Node backend from client/dist
   PostgreSQL on localhost/private interface only
-  cloudflared named tunnel or Tailscale private access
+  Tailscale private access
   deployment/windows-vps/*.ps1
 ```
 
-Internal services should bind to localhost or private interfaces. PostgreSQL must never be exposed publicly. Backend/frontend access should use Tailscale private networking for stable phone access. Cloudflare Quick Tunnel is only an optional temporary diagnostic path.
+Internal services should bind to localhost or private interfaces. PostgreSQL must never be exposed publicly. Backend/frontend access should use Tailscale private networking for stable phone access.
 
 ## Startup And Recovery
 
@@ -38,19 +38,15 @@ To verify laptop independence, shut down the laptop and confirm from phone or an
 
 ## Backups And Restore
 
-Use `deployment/windows-vps/backup-platform.ps1` for timestamped PostgreSQL dumps and backup manifests. Backups belong outside Git and must not print secrets.
+Use `deployment/windows-vps/backup-platform.ps1` for timestamped PostgreSQL dumps, backup manifests, retention, and backup logs. Backups belong outside Git and must not print secrets.
 
-Restore uses `deployment/windows-vps/restore-platform.ps1 -BackupFile <dump> -ConfirmRestore`. The restore script requires an explicit backup file and confirmation before it changes the target database.
+Restore tests use `deployment/windows-vps/restore-platform.ps1 -BackupFile <dump> -DatabaseName trading_analysis_restore_test -ConfirmRestore`. The restore script refuses the production database unless a separate production restore procedure explicitly supplies `-AllowProductionTarget`.
 
 ## Phone Access
 
 Preferred production access:
 
 - Tailscale private device access.
-
-Optional diagnostic access:
-
-- Cloudflare Quick Tunnel or named tunnel with Cloudflare Access authentication, used only for short troubleshooting windows.
 
 Do not publish an unauthenticated public website. Keep database access private and use the private access layer only for the application surface.
 
@@ -80,15 +76,14 @@ Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" | Select-Object TaskName
 
 ## Automatic Production Deployment
 
-Production deployment uses a self-hosted GitHub Actions runner on the Windows VPS. The workflow is `.github/workflows/deploy-production.yml` and only runs from the `production` branch.
+Production deployment uses a self-hosted GitHub Actions runner on the Windows VPS. The workflow is `.github/workflows/deploy-production.yml` and only runs from the `final-core-operational-release` branch.
 
 Promotion flow:
 
 ```text
 final-core-operational-release
 → review and test
-→ merge to production
-→ automatic VPS deployment
+→ automatic exact-commit VPS deployment
 ```
 
 Install the runner without storing tokens in Git:
@@ -97,12 +92,12 @@ Install the runner without storing tokens in Git:
 .\deployment\windows-vps\install-github-runner.ps1 -RepoUrl "https://github.com/OWNER/REPO"
 ```
 
-Use the one-time GitHub runner token interactively on the VPS. The deployment script preserves `.env` and local private config, checks the exact repo root, checks out the exact commit, stops only platform-owned processes, installs dependencies, builds the frontend, runs the existing migration process when present, restarts the platform, and fails if health checks fail.
+Use the one-time GitHub runner token interactively on the VPS. The deployment script preserves `.env` and local private config, checks the exact repo root, checks out the exact commit, installs dependencies, builds the frontend, runs the existing migration process when present, stops only platform-owned processes, restarts the platform, and fails if health checks fail.
 
 Rollback uses the last recorded successful commit:
 
 ```powershell
-.\deployment\windows-vps\rollback-production.ps1 -RepoRoot "C:\TradingAnalysisPlatform\repo"
+.\deployment\windows-vps\rollback-production.ps1 -RepoRoot "C:\trading-analysis-platform"
 ```
 
 ## Verification
@@ -132,66 +127,74 @@ Run these steps on the Windows VPS after deployment or after changing scheduled 
 .\deployment\windows-vps\setup-platform.ps1 -ValidateOnly
 ```
 
-3. Start the platform:
+3. Register scheduled tasks:
 
 ```powershell
-.\deployment\windows-vps\start-platform.ps1 -RepoRoot "C:\TradingAnalysisPlatform\repo" -LogRoot "C:\TradingAnalysisPlatform\logs"
+.\deployment\windows-vps\register-scheduled-tasks.ps1 -RepoRoot "C:\trading-analysis-platform" -ScriptRoot "C:\trading-analysis-platform\deployment\windows-vps" -BackupRoot "C:\trading-analysis-platform\backups" -LogRoot "C:\trading-analysis-platform\logs"
 ```
 
-4. Run a health check and record the exit code. `0` means PASS, `1` means WARN, and `2` means FAIL.
+4. Start the platform:
 
 ```powershell
-.\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\TradingAnalysisPlatform\repo"
+.\deployment\windows-vps\start-platform.ps1 -RepoRoot "C:\trading-analysis-platform" -LogRoot "C:\trading-analysis-platform\logs"
+```
+
+5. Run a health check and record the exit code. `0` means PASS, `1` means WARN, and `2` means FAIL.
+
+```powershell
+.\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\trading-analysis-platform"
 $LASTEXITCODE
 ```
 
-5. Run one read-only MT5 live tick sync and one closed-candle sync:
+6. Confirm the continuous MT5 bridge command is the permanent bridge mode:
 
 ```powershell
-& (Get-Command py).Source "C:\TradingAnalysisPlatform\repo\tools\mt5_bridge\mt5_candle_bridge.py" --ticks
-& (Get-Command py).Source "C:\TradingAnalysisPlatform\repo\tools\mt5_bridge\mt5_candle_bridge.py" --symbol USDJPY --timeframe H1
+Get-ScheduledTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" | Select-Object TaskName,State
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*mt5_candle_bridge.py*" -and $_.CommandLine -like "*--run-continuous*" } | Select-Object ProcessId,CommandLine
 ```
 
-6. Verify the system health API locally:
+7. Verify the system health API locally:
 
 ```powershell
 Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/system/health"
 ```
 
-7. Verify phone or browser access through Tailscale. Cloudflare Quick Tunnel is only for temporary diagnostics. Do not expose PostgreSQL or an unauthenticated public site.
+8. Verify phone or browser access through Tailscale. Do not expose PostgreSQL or an unauthenticated public site.
 
-8. Run a backup:
+9. Run a backup:
 
 ```powershell
-.\deployment\windows-vps\backup-platform.ps1 -BackupRoot "C:\TradingAnalysisPlatform\backups"
+.\deployment\windows-vps\backup-platform.ps1 -BackupRoot "C:\trading-analysis-platform\backups" -LogRoot "C:\trading-analysis-platform\logs"
 ```
 
-9. Confirm the newest backup dump exists and is non-empty:
+10. Confirm the newest backup dump exists and is non-empty:
 
 ```powershell
-Get-ChildItem "C:\TradingAnalysisPlatform\backups" -Recurse -Filter "*.dump" |
+Get-ChildItem "C:\trading-analysis-platform\backups" -Recurse -Filter "*.dump" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1 FullName,Length,LastWriteTime
 ```
 
-10. Inspect scheduled tasks and confirm only `TradingAnalysisPlatform-*` task names were created:
+11. Inspect scheduled tasks and confirm only the expected permanent task names are present:
 
 ```powershell
 Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" |
   Select-Object TaskName,State
 ```
 
-11. Reboot the VPS.
+Expected permanent tasks are `TradingAnalysisPlatform-Backend`, `TradingAnalysisPlatform-MT5ContinuousBridge`, `TradingAnalysisPlatform-HealthCheck`, and `TradingAnalysisPlatform-DailyBackup`.
 
-12. After reboot, confirm the backend, MT5 bridge schedule, database, and private access recover:
+12. Reboot the VPS.
+
+13. After reboot, confirm the backend, MT5 bridge schedule, database, and private access recover:
 
 ```powershell
-.\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\TradingAnalysisPlatform\repo"
+.\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\trading-analysis-platform"
 Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" | Select-Object TaskName,State
 Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/system/health"
 ```
 
-13. Run `stop-platform.ps1` only as a controlled test window. It stops running scheduled task instances and processes whose command line contains the `TradingAnalysisPlatform:` marker.
+14. Run `stop-platform.ps1` only as a controlled test window. It stops running scheduled task instances and processes whose command line contains the `TradingAnalysisPlatform:` marker.
 
 ```powershell
 .\deployment\windows-vps\stop-platform.ps1

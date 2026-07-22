@@ -1,33 +1,54 @@
 param(
   [string]$RepoRoot = "C:\trading-analysis-platform",
-  [string]$LogRoot = "C:\trading-analysis-platform\logs",
-  [string]$CloudflaredConfig = ""
+  [string]$LogRoot = "C:\trading-analysis-platform\logs"
 )
 
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
-$PowerShellExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-$NpmExe = (Get-Command "npm" -ErrorAction Stop).Source
 
-function Start-OwnedProcess {
-  param([string]$Name, [string]$FilePath, [string]$Arguments, [string]$WorkingDirectory)
-  if (-not (Test-Path $WorkingDirectory)) {
-    throw "Working directory not found for ${Name}: $WorkingDirectory"
+function Remove-OldLogs {
+  param([int]$RetentionDays = 14)
+  Get-ChildItem $LogRoot -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$RetentionDays) -and $_.Name -notlike "deploy-production-*" -and $_.Name -notlike "rollback-production-*" } |
+    Remove-Item -Force
+}
+
+function Get-TaskStateText {
+  param([string]$TaskName)
+  $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if (-not $task) { return "missing" }
+  return [string]$task.State
+}
+
+function Start-PlatformTask {
+  param([string]$TaskName)
+  $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if (-not $task) { throw "$TaskName is not registered. Run register-scheduled-tasks.ps1 first." }
+  if ($task.State -ne "Running") {
+    Start-ScheduledTask -TaskName $TaskName
   }
-  $stdoutLog = Join-Path $LogRoot "$Name.out.log"
-  $stderrLog = Join-Path $LogRoot "$Name.err.log"
-  $existing = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*TradingAnalysisPlatform:$Name*" }
-  if ($existing) {
-    if (@($existing).Count -gt 1) {
-      throw "Multiple platform-owned $Name roots found: $(@($existing | ForEach-Object { $_.ProcessId }) -join ',')"
+}
+
+function Wait-Backend {
+  $taskName = "TradingAnalysisPlatform-Backend"
+  $deadline = (Get-Date).AddSeconds(90)
+  $lastError = $null
+  do {
+    try {
+      $response = Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/system/health" -TimeoutSec 10
+      if ($response.backend -eq "available" -or $response.application_status) {
+        Write-Host "PASS backend health endpoint responded"
+        return
+      }
+    } catch {
+      $lastError = $_.Exception.Message
     }
-    Set-Content -Path (Join-Path $LogRoot "$Name.pid") -Value $existing.ProcessId -Encoding ASCII
-    Write-Host "PASS $Name already running"
-    return
-  }
-  $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -WindowStyle Hidden -PassThru
-  Set-Content -Path (Join-Path $LogRoot "$Name.pid") -Value $process.Id -Encoding ASCII
-  Write-Host "PASS started $Name root PID $($process.Id)"
+    $taskState = Get-TaskStateText -TaskName $taskName
+    if ($taskState -eq "Ready") { throw "$taskName exited before backend became healthy. LastError=$lastError" }
+    if ((Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+  } while ((Get-Date) -lt $deadline)
+
+  throw "Backend did not become healthy within 90 seconds. LastError=$lastError"
 }
 
 function Get-RealBridgeProcesses {
@@ -84,14 +105,18 @@ function Wait-ContinuousBridge {
   throw "Continuous MT5 bridge did not become ready within 30 seconds. State=$taskState LastTaskResult=$lastTaskResult LastRunTime=$lastRunTime PythonBridgeProcessCount=$finalProcessCount"
 }
 
+Remove-OldLogs
+
+& (Join-Path $RepoRoot "deployment\windows-vps\validate-production-config.ps1") -Component All -RepoRoot $RepoRoot -LogRoot $LogRoot
+
 $postgres = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($postgres -and $postgres.Status -ne "Running") {
   Start-Service $postgres.Name
 }
 Write-Host "PASS PostgreSQL service checked; keep PostgreSQL bound to localhost/private interfaces only"
 
-Start-OwnedProcess -Name "backend" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:backend'; & '$NpmExe' start`"" -WorkingDirectory (Join-Path $RepoRoot "server")
-Start-OwnedProcess -Name "frontend" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:frontend'; & '$NpmExe' run preview`"" -WorkingDirectory (Join-Path $RepoRoot "client")
+Start-PlatformTask -TaskName "TradingAnalysisPlatform-Backend"
+Wait-Backend
 
 $bridgeTask = Get-ScheduledTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -ErrorAction SilentlyContinue
 if (-not $bridgeTask) { throw "TradingAnalysisPlatform-MT5ContinuousBridge is not registered" }
@@ -102,9 +127,4 @@ if ($bridgeTask.State -ne "Running") {
 }
 Wait-ContinuousBridge -TaskName $bridgeTask.TaskName -LaunchTime $bridgeLaunchTime
 
-if ($CloudflaredConfig -and (Test-Path $CloudflaredConfig)) {
-  $CloudflaredExe = (Get-Command "cloudflared" -ErrorAction Stop).Source
-  Start-OwnedProcess -Name "cloudflared" -FilePath $PowerShellExe -Arguments "-NoProfile -ExecutionPolicy Bypass -Command `"Write-Host 'TradingAnalysisPlatform:cloudflared'; & '$CloudflaredExe' tunnel --config '$CloudflaredConfig' run`"" -WorkingDirectory $RepoRoot
-} else {
-  Write-Host "WARN cloudflared config not supplied; Cloudflare diagnostic tunnel not started. Use Tailscale for stable private access."
-}
+Write-Host "PASS platform scheduled runtime started; frontend is served by the Node backend from client\dist"

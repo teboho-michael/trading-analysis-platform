@@ -33,16 +33,20 @@ try {
   $normalizedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd($pathSeparators)
   if (-not [System.StringComparer]::OrdinalIgnoreCase.Equals($normalizedTop, $normalizedRepoRoot)) { throw "Unexpected git root: $top" }
   if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME -ne $ProductionBranch) { throw "Ref $env:GITHUB_REF_NAME is not approved production branch $ProductionBranch" }
+  $drift = & git status --porcelain --untracked-files=normal
+  if ($drift) {
+    $drift | ForEach-Object { Write-Host "DRIFT $_" }
+    throw "Local repository drift detected. Preserve secrets in ignored files only, then resolve tracked or untracked drift before deployment."
+  }
   Invoke-Step "Fetch approved branch" { & git fetch --prune origin }
   if (-not $CommitSha) { $CommitSha = (& git rev-parse "origin/$ProductionBranch").Trim() }
+  Write-Host "INFO deployment uses exact commit checkout. Detached HEAD is intentional for production."
   Invoke-Step "Checkout $CommitSha" { & git checkout --force $CommitSha }
 
   $lastFile = Join-Path $RepoRoot ".last-successful-deploy"
   if (Test-Path $lastFile) {
     Copy-Item $lastFile (Join-Path $RepoRoot ".previous-successful-deploy") -Force
   }
-
-  Invoke-Step "Stop existing platform workers" { & (Join-Path $RepoRoot "deployment\windows-vps\stop-platform.ps1") -RepoRoot $RepoRoot }
 
   Push-Location (Join-Path $RepoRoot "server")
   try { Invoke-Step "Install server dependencies" { & npm ci --omit=dev } } finally { Pop-Location }
@@ -63,7 +67,8 @@ try {
     Write-Host "WARN no migration runner script found; run migrations through the existing VPS database process before promotion."
   }
 
-  Invoke-Step "Start backend and exactly one bridge" { & (Join-Path $RepoRoot "deployment\windows-vps\start-platform.ps1") -RepoRoot $RepoRoot -LogRoot $LogRoot }
+  Invoke-Step "Stop managed platform runtime" { & (Join-Path $RepoRoot "deployment\windows-vps\stop-platform.ps1") -RepoRoot $RepoRoot -LogRoot $LogRoot }
+  Invoke-Step "Start managed backend and continuous bridge" { & (Join-Path $RepoRoot "deployment\windows-vps\start-platform.ps1") -RepoRoot $RepoRoot -LogRoot $LogRoot }
   Invoke-Step "Run health acceptance" { & (Join-Path $RepoRoot "deployment\windows-vps\health-check.ps1") -RepoRoot $RepoRoot -LogRoot $LogRoot }
 
   Set-Content -Path $lastFile -Value $CommitSha -Encoding ASCII

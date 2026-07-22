@@ -3,7 +3,7 @@ name: Deploy Production
 on:
   push:
     branches:
-      - production
+      - final-core-operational-release
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/production'
+    if: github.ref == 'refs/heads/final-core-operational-release'
     runs-on:
       - self-hosted
       - windows
@@ -22,13 +22,15 @@ jobs:
       - name: Verify runner branch
         shell: powershell
         run: |
-          if ("${{ github.ref_name }}" -ne "production") {
-            throw "Deployment is only allowed from production."
+          if ("${{ github.ref_name }}" -ne "final-core-operational-release") {
+            throw "Deployment is only allowed from final-core-operational-release."
           }
+      - name: Checkout deployment scripts
+        uses: actions/checkout@v4
       - name: Deploy exact commit
         shell: powershell
         run: |
-          C:\TradingAnalysisPlatform\repo\deployment\windows-vps\deploy-production.ps1 `
-            -RepoRoot "C:\TradingAnalysisPlatform\repo" `
+          .\deployment\windows-vps\deploy-production.ps1 `
+            -RepoRoot "C:\trading-analysis-platform" `
             -CommitSha "${{ github.sha }}" `
-            -ProductionBranch "production"
+            -ProductionBranch "final-core-operational-release"
