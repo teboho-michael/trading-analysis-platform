@@ -3,7 +3,9 @@ param(
   [Parameter(Mandatory = $true)][string]$DatabaseName,
   [string]$RepoRoot = "C:\trading-analysis-platform",
   [string]$LogRoot = "C:\trading-analysis-platform\logs",
+  [string]$MaintenanceDatabase = "postgres",
   [switch]$ConfirmRestore,
+  [switch]$CreateTargetDatabase,
   [switch]$AllowProductionTarget
 )
 
@@ -59,6 +61,15 @@ function Assert-ConfigValue {
   return $value
 }
 
+function Assert-PostgresCommandSucceeded {
+  param([string]$CommandName, [int]$ExitCode)
+
+  if ($ExitCode -ne 0) {
+    Write-Host "FAIL $CommandName failed with exit code $ExitCode"
+    throw "$CommandName failed with exit code $ExitCode"
+  }
+}
+
 $previousPgPassword = [Environment]::GetEnvironmentVariable("PGPASSWORD", "Process")
 
 try {
@@ -79,11 +90,24 @@ try {
   if ($DatabaseName -eq $productionDatabaseName -and -not $AllowProductionTarget) {
     throw "Refusing to restore into production database $productionDatabaseName without -AllowProductionTarget. Use a separate test database for restore verification."
   }
+  if ($CreateTargetDatabase -and $DatabaseName -eq $productionDatabaseName) {
+    throw "Refusing to create production database $productionDatabaseName automatically. Use a separate test database for restore verification."
+  }
 
   Write-Host "Restore database configuration loaded from approved environment/server .env sources."
-  Write-Host "Restoring $BackupFile into $DatabaseName"
   $env:PGPASSWORD = $dbPassword
+
+  if ($CreateTargetDatabase) {
+    Write-Host "Creating restore target database $DatabaseName using maintenance database $MaintenanceDatabase"
+    createdb --host $dbHost --port $dbPort --username $dbUser --maintenance-db $MaintenanceDatabase $DatabaseName
+    $createdbExitCode = $LASTEXITCODE
+    Assert-PostgresCommandSucceeded -CommandName "createdb" -ExitCode $createdbExitCode
+  }
+
+  Write-Host "Restoring $BackupFile into $DatabaseName"
   pg_restore --clean --if-exists --no-owner --host $dbHost --port $dbPort --username $dbUser --dbname $DatabaseName $BackupFile
+  $pgRestoreExitCode = $LASTEXITCODE
+  Assert-PostgresCommandSucceeded -CommandName "pg_restore" -ExitCode $pgRestoreExitCode
   Write-Host "PASS restore command completed"
   Write-Host ("Run verification queries against {0}: SELECT current_database(); SELECT COUNT(*) FROM candles;" -f $DatabaseName)
   Write-Host "Transcript: $TranscriptPath"
