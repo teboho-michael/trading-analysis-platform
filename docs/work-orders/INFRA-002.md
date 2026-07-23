@@ -83,6 +83,9 @@ client/dist served by Node backend
 
 Bridge:
 py -3.14 tools\mt5_bridge\mt5_candle_bridge.py --run-continuous
+
+Bridge runtime root:
+C:\ProgramData\TradingAnalysisPlatform\runtime
 ```
 
 The current VPS repository is in detached HEAD state at the verified production commit.
@@ -245,6 +248,7 @@ The task must:
 - restart after failure
 - prevent duplicate instances
 - preserve singleton lock behaviour
+- store lock/state files outside the Git working tree
 - write persistent logs
 - load production configuration securely
 - wait/retry safely when MT5 or backend is unavailable
@@ -539,6 +543,8 @@ INFRA-002 implementation is complete when:
 - deployment uses `C:\trading-analysis-platform`
 - deployment uses `final-core-operational-release` or explicit approved commit
 - rollback remains available
+- bridge lock/state files do not create deployment drift
+- autonomous runtime verification passes without an open PowerShell window
 - no secrets are committed
 - no trading logic is changed
 - one consolidated testing checklist is returned

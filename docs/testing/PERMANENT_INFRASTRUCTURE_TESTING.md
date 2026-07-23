@@ -105,6 +105,7 @@ Required evidence:
 - command output showing status
 - Task Scheduler or service-manager screenshot where applicable
 - confirmation that duplicate application instances are not running
+- confirmation that managed task actions use noninteractive PowerShell and do not require an open console window
 
 Expected:
 
@@ -112,6 +113,8 @@ Expected:
 - startup type or scheduled trigger configured
 - no restart loop
 - no duplicate process
+- backend and continuous bridge restart settings configured
+- normal operation continues without a manually opened PowerShell window
 
 ---
 
@@ -218,6 +221,7 @@ Required checks:
 
 - bridge managed process is running
 - only one bridge instance exists
+- bridge lock/state files are stored outside the Git working tree
 - MetaTrader5 initialization succeeds
 - backend authentication succeeds
 - recent sync succeeds
@@ -238,6 +242,7 @@ Expected:
 - no unresolved symbol-mapping failure
 - no duplicate bridge process
 - recent MT5 candles received by backend
+- no `tools\mt5_bridge\mt5_continuous_bridge.lock` file remains in the Git working tree
 
 ---
 
@@ -491,6 +496,8 @@ Required checks:
 - deployment starts from a clean, approved Git state
 - target branch and commit are explicit
 - production secrets remain untouched
+- approved runtime artifacts do not cause deployment drift
+- real source-code drift still blocks deployment
 - dependencies install successfully
 - frontend build succeeds where applicable
 - services restart in order
@@ -510,8 +517,44 @@ Expected:
 
 - approved commit deployed
 - no direct code drift
+- no manual bridge lock deletion required
 - no lost data
 - no secret overwrite
+
+## 18.1 Autonomous Runtime Verification
+
+Required command:
+
+```powershell
+.\deployment\windows-vps\verify-autonomous-runtime.ps1 `
+  -RepoRoot "C:\trading-analysis-platform" `
+  -LogRoot "C:\trading-analysis-platform\logs" `
+  -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime" `
+  -BackupRoot "C:\trading-analysis-platform\backups" `
+  -ExpectedCommit "<approved-commit>"
+```
+
+Required evidence:
+
+- command output
+- latest autonomous-runtime log
+- Task Scheduler screenshot or command output for the four `TradingAnalysisPlatform-*` tasks
+
+Expected:
+
+- backend health passes
+- frontend HTTP 200 passes
+- PostgreSQL service passes
+- MT5 process passes
+- exactly one bridge process passes
+- bridge freshness passes
+- scheduled task checks pass
+- latest backup passes
+- Tailscale service passes or is explicitly explained if unavailable
+- deployed Git commit matches
+- no tracked or untracked source drift
+- no source-tree bridge lock exists
+- task actions are noninteractive and secret-free
 
 ---
 

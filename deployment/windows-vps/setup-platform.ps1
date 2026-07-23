@@ -1,5 +1,6 @@
 param(
   [string]$PlatformRoot = "C:\trading-analysis-platform",
+  [string]$RuntimeRoot = "C:\ProgramData\TradingAnalysisPlatform\runtime",
   [switch]$ValidateOnly
 )
 
@@ -16,7 +17,7 @@ Write-Host "TradingAnalysisPlatform setup check"
 if ($ValidateOnly) {
   Write-Host "PASS validation mode: no folders will be created"
 } else {
-  New-Item -ItemType Directory -Force -Path $PlatformRoot, "$PlatformRoot\logs", "$PlatformRoot\backups", "$PlatformRoot\runtime" | Out-Null
+  New-Item -ItemType Directory -Force -Path $PlatformRoot, "$PlatformRoot\logs", "$PlatformRoot\backups", $RuntimeRoot | Out-Null
 }
 
 foreach ($item in $required) {

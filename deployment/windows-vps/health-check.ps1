@@ -3,6 +3,7 @@ param(
   [string]$FrontendUrl = "",
   [string]$RepoRoot = "C:\trading-analysis-platform",
   [string]$LogRoot = "C:\trading-analysis-platform\logs",
+  [string]$RuntimeRoot = "C:\ProgramData\TradingAnalysisPlatform\runtime",
   [string]$BackupRoot = "C:\trading-analysis-platform\backups"
 )
 
@@ -170,7 +171,7 @@ $os = Get-CimInstance Win32_OperatingSystem
 $freeMemoryGb = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
 if ($freeMemoryGb -lt 1) { Report "WARN" "memory" "$freeMemoryGb GB free" } else { Report "PASS" "memory" "$freeMemoryGb GB free" }
 
-$state = Join-Path $RepoRoot "tools\mt5_bridge\mt5_bridge_state.json"
+$state = Join-Path $RuntimeRoot "mt5_bridge_state.json"
 if (Test-Path $state) { Report "PASS" "bridge-last-success" "state file present" } else { Report "WARN" "bridge-last-success" "state file not found yet" }
 
 $bridgeTask = Get-ScheduledTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -ErrorAction SilentlyContinue

@@ -9,6 +9,14 @@
 
 PostgreSQL and Tailscale remain Windows services. MetaTrader 5 remains the desktop terminal required by the Python `MetaTrader5` package.
 
+Normal operation does not require an open PowerShell window. PowerShell is only required for deployments, registration/maintenance commands, troubleshooting, and controlled validation.
+
+Bridge runtime state and lock files are stored outside the Git working tree:
+
+```text
+C:\ProgramData\TradingAnalysisPlatform\runtime
+```
+
 ## Register Tasks
 
 ```powershell
@@ -17,8 +25,11 @@ Set-Location C:\trading-analysis-platform
   -RepoRoot "C:\trading-analysis-platform" `
   -ScriptRoot "C:\trading-analysis-platform\deployment\windows-vps" `
   -BackupRoot "C:\trading-analysis-platform\backups" `
-  -LogRoot "C:\trading-analysis-platform\logs"
+  -LogRoot "C:\trading-analysis-platform\logs" `
+  -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime"
 ```
+
+`TradingAnalysisPlatform-Backend` starts at Windows startup and restarts after unexpected failure. `TradingAnalysisPlatform-MT5ContinuousBridge` has startup and logon triggers, uses `MultipleInstances IgnoreNew`, keeps the Windows mutex singleton guard, and restarts after unexpected failure. `TradingAnalysisPlatform-HealthCheck` runs every 5 minutes. `TradingAnalysisPlatform-DailyBackup` runs daily at 2:00 AM.
 
 ## Start, Stop, Restart
 
@@ -62,13 +73,25 @@ MT5 bridge task command:
 
 ```powershell
 Set-Location C:\trading-analysis-platform
+$env:TRADING_ANALYSIS_RUNTIME_DIR = "C:\ProgramData\TradingAnalysisPlatform\runtime"
 py -3.14 C:\trading-analysis-platform\tools\mt5_bridge\mt5_candle_bridge.py --run-continuous
 ```
 
 Health check command:
 
 ```powershell
-.\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\trading-analysis-platform" -LogRoot "C:\trading-analysis-platform\logs" -BackupRoot "C:\trading-analysis-platform\backups"
+.\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\trading-analysis-platform" -LogRoot "C:\trading-analysis-platform\logs" -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime" -BackupRoot "C:\trading-analysis-platform\backups"
+```
+
+Autonomous runtime verification:
+
+```powershell
+.\deployment\windows-vps\verify-autonomous-runtime.ps1 `
+  -RepoRoot "C:\trading-analysis-platform" `
+  -LogRoot "C:\trading-analysis-platform\logs" `
+  -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime" `
+  -BackupRoot "C:\trading-analysis-platform\backups" `
+  -ExpectedCommit "<approved-commit>"
 ```
 
 ## Logs
@@ -78,6 +101,7 @@ Health check command:
 - MT5 bridge: `C:\trading-analysis-platform\logs\mt5-continuous-bridge.log`
 - Configuration validation: `C:\trading-analysis-platform\logs\config-validation-yyyyMMdd.log`
 - Health checks: `C:\trading-analysis-platform\logs\health-check-yyyyMMdd-HHmmss.log`
+- Autonomous runtime verification: `C:\trading-analysis-platform\logs\autonomous-runtime-yyyyMMdd-HHmmss.log`
 - Backups: `C:\trading-analysis-platform\logs\backup-platform-yyyyMMdd-HHmmss-ffff.log`
 - Deployments: `C:\trading-analysis-platform\logs\deploy-production-yyyyMMdd-HHmmss.log`
 - Rollbacks: `C:\trading-analysis-platform\logs\rollback-production-yyyyMMdd-HHmmss.log`
@@ -102,10 +126,12 @@ Deploy an approved commit:
 ```powershell
 .\deployment\windows-vps\deploy-production.ps1 `
   -RepoRoot "C:\trading-analysis-platform" `
-  -CommitSha "5a446752a72e46612b49c92b88ddc8ca706e08b8" `
+  -CommitSha "7fa3101ba2bc3180874b9f82df004e421967800c" `
   -ProductionBranch "final-core-operational-release" `
   -LogRoot "C:\trading-analysis-platform\logs"
 ```
+
+Deployment removes only the approved legacy source-tree bridge lock artifact, `tools\mt5_bridge\mt5_continuous_bridge.lock`, before drift detection. Runtime lock/state files now live under `C:\ProgramData\TradingAnalysisPlatform\runtime`, so normal deployments do not require manual lock deletion. The deploy script still fails on real tracked or untracked source-code drift.
 
 Rollback application code to the previous successful deployment:
 
@@ -114,3 +140,27 @@ Rollback application code to the previous successful deployment:
 ```
 
 Application rollback does not roll back the production database automatically.
+
+## Controlled Reboot Acceptance
+
+```powershell
+Set-Location C:\trading-analysis-platform
+git status
+git rev-parse HEAD
+.\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\trading-analysis-platform" -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime"
+.\deployment\windows-vps\verify-autonomous-runtime.ps1 -RepoRoot "C:\trading-analysis-platform" -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime" -ExpectedCommit "7fa3101ba2bc3180874b9f82df004e421967800c"
+Restart-Computer
+```
+
+After Windows returns, do not open a persistent PowerShell runtime window. Use PowerShell only to collect evidence:
+
+```powershell
+Set-Location C:\trading-analysis-platform
+Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" | Select-Object TaskName,State
+Get-ScheduledTaskInfo -TaskName "TradingAnalysisPlatform-Backend"
+Get-ScheduledTaskInfo -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge"
+.\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\trading-analysis-platform" -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime"
+.\deployment\windows-vps\verify-autonomous-runtime.ps1 -RepoRoot "C:\trading-analysis-platform" -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime" -ExpectedCommit "7fa3101ba2bc3180874b9f82df004e421967800c"
+```
+
+Expected: backend is reachable, frontend returns HTTP 200 from the backend, PostgreSQL and Tailscale services are running, MT5 is available, exactly one continuous bridge process is running, bridge state is fresh, latest backup is valid, the deployed commit is correct, and `git status --porcelain --untracked-files=normal` reports no source drift.

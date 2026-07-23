@@ -3,6 +3,7 @@ param(
   [string]$ScriptRoot = "C:\trading-analysis-platform\deployment\windows-vps",
   [string]$BackupRoot = "C:\trading-analysis-platform\backups",
   [string]$LogRoot = "C:\trading-analysis-platform\logs",
+  [string]$RuntimeRoot = "C:\ProgramData\TradingAnalysisPlatform\runtime",
   [string]$CloudflaredConfig = ""
 )
 
@@ -22,15 +23,16 @@ Assert-WindowsAbsolutePath -Path $RepoRoot -Name "RepoRoot"
 Assert-WindowsAbsolutePath -Path $ScriptRoot -Name "ScriptRoot"
 Assert-WindowsAbsolutePath -Path $BackupRoot -Name "BackupRoot"
 Assert-WindowsAbsolutePath -Path $LogRoot -Name "LogRoot"
+Assert-WindowsAbsolutePath -Path $RuntimeRoot -Name "RuntimeRoot"
 if ($CloudflaredConfig) {
   Assert-WindowsAbsolutePath -Path $CloudflaredConfig -Name "CloudflaredConfig"
 }
 
-New-Item -ItemType Directory -Force -Path $LogRoot, $BackupRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $LogRoot, $BackupRoot, $RuntimeRoot | Out-Null
 
 function Register-PlatformTask {
-  param([string]$Name, [string]$Command, [Microsoft.Management.Infrastructure.CimInstance]$Trigger, [Microsoft.Management.Infrastructure.CimInstance]$Settings = $null)
-  $action = New-ScheduledTaskAction -Execute $PowerShellExe -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$Command`""
+  param([string]$Name, [string]$Command, [object[]]$Trigger, [Microsoft.Management.Infrastructure.CimInstance]$Settings = $null)
+  $action = New-ScheduledTaskAction -Execute $PowerShellExe -Argument "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"$Command`""
   if (-not $Settings) { $Settings = New-ScheduledTaskSettingsSet }
   Register-ScheduledTask -TaskName "TradingAnalysisPlatform-$Name" -Action $action -Trigger $Trigger -Settings $Settings -Description "Trading Analysis Platform $Name" -Force | Out-Null
   Write-Host "PASS registered TradingAnalysisPlatform-$Name"
@@ -41,10 +43,10 @@ $backendCommand = "New-Item -ItemType Directory -Force -Path '$LogRoot' | Out-Nu
 Register-PlatformTask -Name "Backend" -Command $backendCommand -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $backendSettings
 
 $bridgeSettings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-$bridgeCommand = "New-Item -ItemType Directory -Force -Path '$LogRoot' | Out-Null; Set-Location '$RepoRoot'; & '$ScriptRoot\validate-production-config.ps1' -Component Bridge -RepoRoot '$RepoRoot' -LogRoot '$LogRoot'; Write-Host 'TradingAnalysisPlatform:mt5-continuous-bridge'; & '$PythonLauncher' -3.14 '$RepoRoot\tools\mt5_bridge\mt5_candle_bridge.py' --run-continuous *>> '$LogRoot\mt5-continuous-bridge.log'"
-Register-PlatformTask -Name "MT5ContinuousBridge" -Command $bridgeCommand -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Settings $bridgeSettings
+$bridgeCommand = "New-Item -ItemType Directory -Force -Path '$LogRoot', '$RuntimeRoot' | Out-Null; Set-Location '$RepoRoot'; `$env:TRADING_ANALYSIS_RUNTIME_DIR = '$RuntimeRoot'; & '$ScriptRoot\validate-production-config.ps1' -Component Bridge -RepoRoot '$RepoRoot' -LogRoot '$LogRoot'; Write-Host 'TradingAnalysisPlatform:mt5-continuous-bridge'; & '$PythonLauncher' -3.14 '$RepoRoot\tools\mt5_bridge\mt5_candle_bridge.py' --run-continuous *>> '$LogRoot\mt5-continuous-bridge.log'"
+Register-PlatformTask -Name "MT5ContinuousBridge" -Command $bridgeCommand -Trigger @((New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -AtLogOn)) -Settings $bridgeSettings
 @("TradingAnalysisPlatform-BackendStartup", "TradingAnalysisPlatform-Frontend", "TradingAnalysisPlatform-MT5BridgeCollection", "TradingAnalysisPlatform-MT5LiveTicks") | ForEach-Object {
   if (Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName $_ -Confirm:$false }
 }
-Register-PlatformTask -Name "DailyBackup" -Command "& '$ScriptRoot\backup-platform.ps1' -BackupRoot '$BackupRoot' -LogRoot '$LogRoot'" -Trigger (New-ScheduledTaskTrigger -Daily -At 2am)
-Register-PlatformTask -Name "HealthCheck" -Command "& '$ScriptRoot\health-check.ps1' -RepoRoot '$RepoRoot' -LogRoot '$LogRoot'" -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650))
+Register-PlatformTask -Name "DailyBackup" -Command "Set-Location '$RepoRoot'; & '$ScriptRoot\backup-platform.ps1' -RepoRoot '$RepoRoot' -BackupRoot '$BackupRoot' -LogRoot '$LogRoot'" -Trigger (New-ScheduledTaskTrigger -Daily -At 2am)
+Register-PlatformTask -Name "HealthCheck" -Command "Set-Location '$RepoRoot'; & '$ScriptRoot\health-check.ps1' -RepoRoot '$RepoRoot' -LogRoot '$LogRoot' -RuntimeRoot '$RuntimeRoot'" -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650))

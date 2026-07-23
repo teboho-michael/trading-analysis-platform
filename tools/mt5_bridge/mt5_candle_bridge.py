@@ -18,6 +18,7 @@ import socket
 from pathlib import Path
 from statistics import median
 import sys
+import tempfile
 import time
 import traceback
 from urllib import error, request
@@ -27,11 +28,20 @@ import MetaTrader5 as mt5
 
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_CONFIG_FILE = BASE_DIR / "mt5_bridge.local.json"
-STATE_FILE = Path(os.getenv("MT5_BRIDGE_STATE_FILE", BASE_DIR / "mt5_bridge_state.json"))
+
+
+def default_runtime_dir() -> Path:
+    if os.name == "nt":
+        return Path(os.getenv("PROGRAMDATA", r"C:\ProgramData")) / "TradingAnalysisPlatform" / "runtime"
+    return Path(os.getenv("XDG_RUNTIME_DIR", tempfile.gettempdir())) / "TradingAnalysisPlatform" / "runtime"
+
+
+RUNTIME_DIR = Path(os.getenv("TRADING_ANALYSIS_RUNTIME_DIR") or os.getenv("MT5_BRIDGE_RUNTIME_DIR") or default_runtime_dir())
+STATE_FILE = Path(os.getenv("MT5_BRIDGE_STATE_FILE", RUNTIME_DIR / "mt5_bridge_state.json"))
 DEFAULT_SYMBOLS = ["BTCUSD", "XAUUSD", "USDJPY", "US500", "US100"]
 DEFAULT_TIMEFRAMES = ["D1", "H4", "H1"]
 DEFAULT_CANDLE_LIMIT = 500
-CONTINUOUS_LOCK_FILE = BASE_DIR / "mt5_continuous_bridge.lock"
+CONTINUOUS_LOCK_FILE = Path(os.getenv("MT5_BRIDGE_LOCK_FILE", RUNTIME_DIR / "mt5_continuous_bridge.lock"))
 WINDOWS_MUTEX_NAME = r"Global\TradingAnalysisPlatform-MT5ContinuousBridge"
 TICK_INTERVAL_SECONDS = 5
 CANDLE_INTERVAL_SECONDS = {"H1": 60, "H4": 300, "D1": 900}
@@ -510,6 +520,7 @@ def _configure_windows_mutex_api(kernel32):
 
 
 def _write_informational_lock(pid: int) -> None:
+    CONTINUOUS_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     temporary_lock = CONTINUOUS_LOCK_FILE.with_name(f"{CONTINUOUS_LOCK_FILE.name}.{pid}.tmp")
     try:
         temporary_lock.write_text(str(pid), encoding="utf-8")
@@ -556,6 +567,7 @@ class ContinuousLock:
         return self
 
     def _enter_posix(self):
+        CONTINUOUS_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
         while True:
             try:
                 self.fd = os.open(CONTINUOUS_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)

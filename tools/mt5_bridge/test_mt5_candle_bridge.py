@@ -105,6 +105,11 @@ class BrokerClockNormalizationTests(unittest.TestCase):
             bridge.api_json = original
             bridge.datetime = original_now
 
+    def test_default_continuous_lock_is_outside_source_tree(self):
+        self.assertNotEqual(bridge.CONTINUOUS_LOCK_FILE.parent, bridge.BASE_DIR)
+        self.assertEqual(bridge.CONTINUOUS_LOCK_FILE.name, "mt5_continuous_bridge.lock")
+        self.assertNotEqual(bridge.STATE_FILE.parent, bridge.BASE_DIR)
+
     def test_active_continuous_lock_pid_is_rejected_without_deleting_lock(self):
         original = bridge.CONTINUOUS_LOCK_FILE
         try:

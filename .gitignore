@@ -9,6 +9,7 @@ dist/
 .DS_Store
 *.local.json
 mt5_bridge_state.json
+mt5_continuous_bridge.lock*
 logs/
 backups/
 runtime/

@@ -21,6 +21,35 @@ function Invoke-Step {
   }
 }
 
+function Remove-ApprovedRuntimeDrift {
+  param([string]$RepoRoot)
+
+  $legacyLock = Join-Path $RepoRoot "tools\mt5_bridge\mt5_continuous_bridge.lock"
+  if (Test-Path $legacyLock) {
+    Write-Host "INFO removing approved legacy runtime artifact before drift check: tools/mt5_bridge/mt5_continuous_bridge.lock"
+    Remove-Item -Path $legacyLock -Force
+  }
+  Get-ChildItem (Join-Path $RepoRoot "tools\mt5_bridge") -File -Filter "mt5_continuous_bridge.lock.*.tmp" -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "INFO removing approved legacy runtime artifact before drift check: tools/mt5_bridge/$($_.Name)"
+    Remove-Item -Path $_.FullName -Force
+  }
+
+  $status = @(& git status --porcelain --untracked-files=normal)
+  $approvedLegacyBridgeLocks = @($status | Where-Object {
+    $_ -eq "?? tools/mt5_bridge/mt5_continuous_bridge.lock" -or
+    $_ -like "?? tools/mt5_bridge/mt5_continuous_bridge.lock.*.tmp"
+  })
+
+  foreach ($entry in $approvedLegacyBridgeLocks) {
+    $relativePath = $entry.Substring(3)
+    $fullPath = Join-Path $RepoRoot ($relativePath -replace "/", "\")
+    if (Test-Path $fullPath) {
+      Write-Host "INFO removing approved legacy runtime artifact before drift check: $relativePath"
+      Remove-Item -Path $fullPath -Force
+    }
+  }
+}
+
 if (-not (Test-Path $RepoRoot)) { throw "RepoRoot not found: $RepoRoot" }
 $null = New-Item -ItemType Directory -Force -Path $LogRoot
 $TranscriptPath = Join-Path $LogRoot ("deploy-production-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -33,6 +62,7 @@ try {
   $normalizedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd($pathSeparators)
   if (-not [System.StringComparer]::OrdinalIgnoreCase.Equals($normalizedTop, $normalizedRepoRoot)) { throw "Unexpected git root: $top" }
   if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME -ne $ProductionBranch) { throw "Ref $env:GITHUB_REF_NAME is not approved production branch $ProductionBranch" }
+  Remove-ApprovedRuntimeDrift -RepoRoot $RepoRoot
   $drift = & git status --porcelain --untracked-files=normal
   if ($drift) {
     $drift | ForEach-Object { Write-Host "DRIFT $_" }
