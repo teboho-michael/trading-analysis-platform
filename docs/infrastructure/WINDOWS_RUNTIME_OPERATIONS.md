@@ -89,6 +89,8 @@ Health check command:
 .\deployment\windows-vps\restore-platform.ps1 -BackupFile "<backup.dump>" -DatabaseName "trading_analysis_restore_test" -ConfirmRestore
 ```
 
+`backup-platform.ps1` loads `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` from approved environment variables or `server\.env`. It passes host, port, user, and database explicitly to `pg_dump` and supplies the password through the process `PGPASSWORD` environment variable only for the dump run. Password values must not be printed in transcripts or placed directly on the command line.
+
 Do not restore into `trading_analysis` unless a separate production restore procedure has been approved.
 
 ## Deploy And Rollback
