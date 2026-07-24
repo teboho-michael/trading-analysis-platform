@@ -29,7 +29,7 @@ Set-Location C:\trading-analysis-platform
   -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime"
 ```
 
-`TradingAnalysisPlatform-Backend` starts at Windows startup and restarts after unexpected failure. `TradingAnalysisPlatform-MT5ContinuousBridge` has startup and logon triggers, uses `MultipleInstances IgnoreNew`, keeps the Windows mutex singleton guard, and restarts after unexpected failure. `TradingAnalysisPlatform-HealthCheck` runs every 5 minutes. `TradingAnalysisPlatform-DailyBackup` runs daily at 2:00 AM.
+`TradingAnalysisPlatform-Backend` starts at Windows startup as `SYSTEM` with `LogonType=ServiceAccount`, `RunLevel=Highest`, and restarts after unexpected failure. `TradingAnalysisPlatform-HealthCheck` and `TradingAnalysisPlatform-DailyBackup` also run as `SYSTEM` service-account tasks so they do not require Administrator to be logged on. `TradingAnalysisPlatform-MT5ContinuousBridge` intentionally remains `Administrator` with `LogonType=Interactive` because the Python MT5 package depends on the interactive MT5 desktop terminal session; it has startup and logon triggers, uses `MultipleInstances IgnoreNew`, keeps the Windows mutex singleton guard, and restarts after unexpected failure.
 
 ## Start, Stop, Restart
 
@@ -44,6 +44,7 @@ Set-Location C:\trading-analysis-platform
 
 ```powershell
 Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" | Select-Object TaskName,State
+Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" | Select-Object TaskName,@{Name="UserId";Expression={$_.Principal.UserId}},@{Name="LogonType";Expression={$_.Principal.LogonType}},@{Name="RunLevel";Expression={$_.Principal.RunLevel}}
 Get-ScheduledTaskInfo -TaskName "TradingAnalysisPlatform-Backend"
 Get-ScheduledTaskInfo -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge"
 Get-Service *postgres*
@@ -157,10 +158,11 @@ After Windows returns, do not open a persistent PowerShell runtime window. Use P
 ```powershell
 Set-Location C:\trading-analysis-platform
 Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" | Select-Object TaskName,State
+Get-ScheduledTask -TaskName "TradingAnalysisPlatform-*" | Select-Object TaskName,@{Name="UserId";Expression={$_.Principal.UserId}},@{Name="LogonType";Expression={$_.Principal.LogonType}},@{Name="RunLevel";Expression={$_.Principal.RunLevel}}
 Get-ScheduledTaskInfo -TaskName "TradingAnalysisPlatform-Backend"
 Get-ScheduledTaskInfo -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge"
 .\deployment\windows-vps\health-check.ps1 -RepoRoot "C:\trading-analysis-platform" -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime"
 .\deployment\windows-vps\verify-autonomous-runtime.ps1 -RepoRoot "C:\trading-analysis-platform" -RuntimeRoot "C:\ProgramData\TradingAnalysisPlatform\runtime" -ExpectedCommit "7fa3101ba2bc3180874b9f82df004e421967800c"
 ```
 
-Expected: backend is reachable, frontend returns HTTP 200 from the backend, PostgreSQL and Tailscale services are running, MT5 is available, exactly one continuous bridge process is running, bridge state is fresh, latest backup is valid, the deployed commit is correct, and `git status --porcelain --untracked-files=normal` reports no source drift.
+Expected: backend is reachable after boot without Administrator login, frontend returns HTTP 200 from the backend, PostgreSQL and Tailscale services are running, MT5 is available after the Administrator interactive MT5 session is present, exactly one continuous bridge process is running, bridge state is fresh, latest backup is valid, backend/health/backup principals are unattended-capable, bridge principal remains Administrator interactive, no task action embeds secret values or secret variable names, the deployed commit is correct, and `git status --porcelain --untracked-files=normal` reports no source drift.

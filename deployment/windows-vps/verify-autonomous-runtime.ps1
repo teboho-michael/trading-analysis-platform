@@ -42,8 +42,52 @@ function Get-RealBridgeProcesses {
   })
 }
 
+function Test-TaskPrincipal {
+  param([object]$Principal, [string]$TaskName, [bool]$RequireUnattended = $false, [bool]$RequireInteractive = $false)
+  if (-not $Principal) {
+    Report "FAIL" "$TaskName-principal" "principal unavailable"
+    return
+  }
+
+  $userId = [string]$Principal.UserId
+  $logonType = [string]$Principal.LogonType
+  $runLevel = [string]$Principal.RunLevel
+  $unattendedUsers = @("SYSTEM", "NT AUTHORITY\SYSTEM", "S-1-5-18", "LOCAL SERVICE", "NT AUTHORITY\LOCAL SERVICE", "S-1-5-19", "NETWORK SERVICE", "NT AUTHORITY\NETWORK SERVICE", "S-1-5-20")
+
+  if ($RequireUnattended) {
+    if ($logonType -eq "Interactive") {
+      Report "FAIL" "$TaskName-principal" "LogonType=Interactive cannot run reliably before Administrator logs on"
+    } elseif ($logonType -eq "ServiceAccount" -and $unattendedUsers -contains $userId) {
+      Report "PASS" "$TaskName-principal" "UserId=$userId LogonType=$logonType RunLevel=$runLevel"
+    } else {
+      Report "FAIL" "$TaskName-principal" "unapproved unattended principal UserId=$userId LogonType=$logonType"
+    }
+  }
+
+  if ($RequireInteractive) {
+    if ($logonType -eq "Interactive" -and $userId -match "(^|\\)Administrator$") {
+      Report "PASS" "$TaskName-principal" "interactive MT5 desktop principal preserved"
+    } else {
+      Report "FAIL" "$TaskName-principal" "expected Administrator Interactive for MT5 desktop access; UserId=$userId LogonType=$logonType"
+    }
+  }
+
+  if (($RequireUnattended -or $RequireInteractive) -and $runLevel -ne "Highest") {
+    Report "FAIL" "$TaskName-runlevel" "RunLevel=$runLevel"
+  } elseif ($RequireUnattended -or $RequireInteractive) {
+    Report "PASS" "$TaskName-runlevel" "RunLevel=Highest"
+  }
+}
+
 function Test-ManagedTask {
-  param([string]$TaskName, [bool]$RequireRunning = $false, [bool]$RequireStartupTrigger = $false)
+  param(
+    [string]$TaskName,
+    [bool]$RequireRunning = $false,
+    [bool]$RequireStartupTrigger = $false,
+    [bool]$RequireLogonTrigger = $false,
+    [bool]$RequireUnattendedPrincipal = $false,
+    [bool]$RequireInteractivePrincipal = $false
+  )
   $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
   $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
   if (-not $task) {
@@ -58,8 +102,10 @@ function Test-ManagedTask {
     Report "PASS" $TaskName "State=$($task.State) LastTaskResult=$lastTaskResult"
   }
 
+  Test-TaskPrincipal -Principal $task.Principal -TaskName $TaskName -RequireUnattended $RequireUnattendedPrincipal -RequireInteractive $RequireInteractivePrincipal
+
   $arguments = [string](@($task.Actions | ForEach-Object { $_.Arguments }) -join " ")
-  if ($arguments -match "DB_PASSWORD|MT5_BRIDGE_SECRET|replace-with|password=") {
+  if ($arguments -match "DB_PASSWORD|POSTGRES_PASSWORD|PGPASSWORD|MT5_BRIDGE_SECRET|replace-with|password=") {
     Report "FAIL" "$TaskName-action-secrets" "scheduled task action appears to contain secret material"
   } else {
     Report "PASS" "$TaskName-action-secrets" "no secret variable values or names embedded in action arguments"
@@ -80,6 +126,8 @@ function Test-ManagedTask {
   $triggerTypes = @($task.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ","
   if ($RequireStartupTrigger -and $triggerTypes -notmatch "BootTrigger") {
     Report "FAIL" "$TaskName-startup" "startup trigger missing; Triggers=$triggerTypes"
+  } elseif ($RequireLogonTrigger -and $triggerTypes -notmatch "LogonTrigger") {
+    Report "FAIL" "$TaskName-logon" "logon trigger missing; Triggers=$triggerTypes"
   } else {
     Report "PASS" "$TaskName-triggers" "Triggers=$triggerTypes"
   }
@@ -126,10 +174,10 @@ $lockFile = Join-Path $RuntimeRoot "mt5_continuous_bridge.lock"
 if (Test-Path $stateFile) { Report "PASS" "runtime-state-file" $stateFile } else { Report "WARN" "runtime-state-file" "not found yet: $stateFile" }
 if (Test-Path $lockFile) { Report "PASS" "runtime-lock-file" $lockFile } else { Report "WARN" "runtime-lock-file" "not found yet: $lockFile" }
 
-Test-ManagedTask -TaskName "TradingAnalysisPlatform-Backend" -RequireRunning $true -RequireStartupTrigger $true
-Test-ManagedTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -RequireRunning $true -RequireStartupTrigger $true
-Test-ManagedTask -TaskName "TradingAnalysisPlatform-HealthCheck"
-Test-ManagedTask -TaskName "TradingAnalysisPlatform-DailyBackup"
+Test-ManagedTask -TaskName "TradingAnalysisPlatform-Backend" -RequireRunning $true -RequireStartupTrigger $true -RequireUnattendedPrincipal $true
+Test-ManagedTask -TaskName "TradingAnalysisPlatform-MT5ContinuousBridge" -RequireRunning $true -RequireStartupTrigger $true -RequireLogonTrigger $true -RequireInteractivePrincipal $true
+Test-ManagedTask -TaskName "TradingAnalysisPlatform-HealthCheck" -RequireUnattendedPrincipal $true
+Test-ManagedTask -TaskName "TradingAnalysisPlatform-DailyBackup" -RequireUnattendedPrincipal $true
 
 $latestBackup = Get-ChildItem $BackupRoot -Recurse -Filter "*.dump" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($latestBackup -and $latestBackup.Length -gt 0) {

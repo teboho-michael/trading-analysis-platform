@@ -247,6 +247,7 @@ The task must:
 - start automatically
 - restart after failure
 - prevent duplicate instances
+- preserve the Administrator interactive MT5 desktop session requirement
 - preserve singleton lock behaviour
 - store lock/state files outside the Git working tree
 - write persistent logs
@@ -545,6 +546,8 @@ INFRA-002 implementation is complete when:
 - rollback remains available
 - bridge lock/state files do not create deployment drift
 - autonomous runtime verification passes without an open PowerShell window
+- backend, health-check, and backup tasks run under unattended service-account capable principals
+- the MT5 continuous bridge remains tied to the Administrator interactive session instead of running as SYSTEM
 - no secrets are committed
 - no trading logic is changed
 - one consolidated testing checklist is returned

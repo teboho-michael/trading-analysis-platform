@@ -548,13 +548,15 @@ Expected:
 - MT5 process passes
 - exactly one bridge process passes
 - bridge freshness passes
-- scheduled task checks pass
+- scheduled task checks pass, including `TradingAnalysisPlatform-Backend` running as an unattended service-account principal with an `AtStartup` trigger
+- `TradingAnalysisPlatform-HealthCheck` and `TradingAnalysisPlatform-DailyBackup` use unattended-capable service-account principals
+- `TradingAnalysisPlatform-MT5ContinuousBridge` preserves the Administrator interactive MT5 desktop principal and logon trigger
 - latest backup passes
 - Tailscale service passes or is explicitly explained if unavailable
 - deployed Git commit matches
 - no tracked or untracked source drift
 - no source-tree bridge lock exists
-- task actions are noninteractive and secret-free
+- task actions are noninteractive and contain no secret values or secret variable names
 
 ---
 

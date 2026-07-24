@@ -44,6 +44,12 @@ test("scheduled tasks are restartable, noninteractive, explicit, and duplicate-s
   const taskRegistration = read("deployment", "windows-vps", "register-scheduled-tasks.ps1");
   const startPlatform = read("deployment", "windows-vps", "start-platform.ps1");
 
+  assert.match(taskRegistration, /New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest/);
+  assert.match(taskRegistration, /New-ScheduledTaskPrincipal -UserId \$InteractiveTaskUser -LogonType Interactive -RunLevel Highest/);
+  assert.match(taskRegistration, /Register-PlatformTask -Name "Backend".+-Principal \$unattendedPrincipal/);
+  assert.match(taskRegistration, /Register-PlatformTask -Name "DailyBackup".+-Principal \$unattendedPrincipal/);
+  assert.match(taskRegistration, /Register-PlatformTask -Name "HealthCheck".+-Principal \$unattendedPrincipal/);
+  assert.match(taskRegistration, /Register-PlatformTask -Name "MT5ContinuousBridge".+-Principal \$bridgePrincipal/);
   assert.match(taskRegistration, /New-ScheduledTaskTrigger -AtStartup/);
   assert.match(taskRegistration, /New-ScheduledTaskTrigger -AtLogOn/);
   assert.match(taskRegistration, /RestartCount 999/);
@@ -53,7 +59,7 @@ test("scheduled tasks are restartable, noninteractive, explicit, and duplicate-s
   assert.match(taskRegistration, /Set-Location '\$RepoRoot\\server'/);
   assert.match(taskRegistration, /Set-Location '\$RepoRoot'/);
   assert.match(taskRegistration, /validate-production-config\.ps1/);
-  assert.doesNotMatch(taskRegistration, /DB_PASSWORD|MT5_BRIDGE_SECRET=|replace-with-shared-bridge-secret/);
+  assert.doesNotMatch(taskRegistration, /DB_PASSWORD|POSTGRES_PASSWORD|PGPASSWORD|MT5_BRIDGE_SECRET=|replace-with-shared-bridge-secret/);
 
   assert.match(startPlatform, /Duplicate continuous MT5 bridge Python processes detected/);
   assert.match(startPlatform, /TradingAnalysisPlatform-MT5ContinuousBridge/);
@@ -81,6 +87,13 @@ test("autonomous verification covers runtime ownership and console independence"
   assert.match(verify, /TradingAnalysisPlatform-MT5ContinuousBridge/);
   assert.match(verify, /TradingAnalysisPlatform-HealthCheck/);
   assert.match(verify, /TradingAnalysisPlatform-DailyBackup/);
+  assert.match(verify, /RequireUnattendedPrincipal/);
+  assert.match(verify, /RequireInteractivePrincipal/);
+  assert.match(verify, /LogonType=Interactive cannot run reliably before Administrator logs on/);
+  assert.match(verify, /expected Administrator Interactive for MT5 desktop access/);
+  assert.match(verify, /DB_PASSWORD\|POSTGRES_PASSWORD\|PGPASSWORD\|MT5_BRIDGE_SECRET/);
+  assert.match(verify, /BootTrigger/);
+  assert.match(verify, /LogonTrigger/);
   assert.match(verify, /-NonInteractive/);
   assert.match(verify, /RestartCount/);
   assert.doesNotMatch(verify, /MT5_BRIDGE_SECRET=|replace-with-shared-bridge-secret/);
